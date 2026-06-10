@@ -8,8 +8,8 @@ use engine_input::InputState;
 use engine_render::{RenderExtractState, RenderSurfaceInfo, RenderWorld};
 use engine_world::{BiomeMap, SparseVoxelOctree, WorldMutationQueue};
 use game::{
-    register_local_client_systems, ActivePlayMode, LocalPlayerId, PlayerInputs, TerrainGeneration,
-    WorldInitialized,
+    register_local_client_systems, ActiveDebugWorld, ActivePlayMode, LocalPlayerId, PlayerInputs,
+    TerrainGeneration, WorldInitialized,
 };
 
 use crate::systems::input::PendingWinitInput;
@@ -31,6 +31,7 @@ pub fn bootstrap_client_shell(app: &mut App) {
     app.insert_resource(RenderSurfaceInfo::default());
     app.insert_resource(SpectatorCamera::default());
     app.insert_resource(ActivePlayMode::default());
+    app.insert_resource(ActiveDebugWorld::default());
 }
 
 /// Loads block registry and packs block textures into a single resource.

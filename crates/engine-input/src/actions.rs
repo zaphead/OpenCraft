@@ -13,6 +13,7 @@ pub struct InputState {
     pub place_block: bool,
     pub cursor_locked: bool,
     pub toggle_play_mode: bool,
+    pub cycle_debug_world: bool,
 }
 
 impl InputState {
@@ -40,6 +41,7 @@ impl InputState {
         self.break_block = false;
         self.place_block = false;
         self.toggle_play_mode = false;
+        self.cycle_debug_world = false;
     }
 }
 

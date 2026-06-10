@@ -4,12 +4,13 @@ use engine_assets::{BlockRegistry, ResolvedBlockMaterials};
 use engine_core::{SystemContext, Time};
 use engine_render::{Camera, RenderExtractState, RenderSurfaceInfo, RenderWorld};
 use engine_world::{BiomeMap, SparseVoxelOctree, VoxelChanged};
-use game::{local_player_entity, ActivePlayMode, PlayMode, Transform, WorldInitialized};
+use game::{
+    local_player_entity, ActiveDebugWorld, ActivePlayMode, DebugWorldKind, PlayMode, Transform,
+    WorldInitialized, PLAYER_EYE_OFFSET_Z,
+};
 
 use crate::mesh_pipeline::{bootstrap_terrain_meshes, rebuild_budget_for_extract, rebuild_chunk_meshes};
 use crate::systems::spectator::SpectatorCamera;
-
-const EYE_OFFSET_Z: f32 = 0.62;
 
 pub fn sync_block_changes_system(ctx: &mut SystemContext<'_>) {
     let Some(state) = ctx.resources.get_mut::<RenderExtractState>() else {
@@ -33,10 +34,15 @@ pub fn queue_initial_world_meshes_system(ctx: &mut SystemContext<'_>) {
     if !initialized {
         return;
     }
+    let world_kind = ctx
+        .resources
+        .get::<ActiveDebugWorld>()
+        .map(|active| active.0)
+        .unwrap_or(DebugWorldKind::RollingHills);
     let Some(state) = ctx.resources.get_mut::<RenderExtractState>() else {
         return;
     };
-    bootstrap_terrain_meshes(state);
+    bootstrap_terrain_meshes(state, world_kind);
 }
 
 pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
@@ -101,7 +107,7 @@ fn extract_camera(ctx: &SystemContext<'_>, aspect: f32) -> Camera {
         if let Some(entity) = local_player_entity(ctx) {
             if let Ok(transform) = ctx.world.get::<&Transform>(entity) {
                 return Camera {
-                    position: transform.position + glam::Vec3::new(0.0, 0.0, EYE_OFFSET_Z),
+                    position: transform.position + glam::Vec3::new(0.0, 0.0, PLAYER_EYE_OFFSET_Z),
                     yaw: transform.yaw,
                     pitch: transform.pitch,
                     aspect,

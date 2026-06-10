@@ -50,6 +50,11 @@ fn apply_keyboard(input: &mut InputState, event: &KeyEvent) {
                 input.toggle_play_mode = true;
             }
         }
+        KeyCode::Tab => {
+            if pressed {
+                input.cycle_debug_world = true;
+            }
+        }
         _ => {}
     }
 }

@@ -19,7 +19,7 @@
 
 Multiplayer, audio, advanced LOD, and polish are explicitly out of scope until after this loop works locally.
 
-**Current local client:** **Survival** (walk, jump, gravity, 2-block-tall player) and **Spectator** (free-fly) toggled with **M**; mode label top-left. Rolling-hill terrain via simple 2D noise. Block interaction and mobs still deferred (phases 7, 9).
+**Current local client:** **Survival** / **Spectator** toggled with **M**; **Tab** cycles debug worlds (**3 blocks** ↔ **rolling hills**). HUD shows mode + world profile top-left. Block interaction and mobs still deferred (phases 7, 9).
 
 ---
 

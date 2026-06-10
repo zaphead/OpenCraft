@@ -1,8 +1,13 @@
 use engine_render::Camera;
-use game::PlayMode;
+use game::{DebugWorldKind, PlayMode};
 
-pub fn format_debug_hud(camera: &Camera, mode: Option<PlayMode>) -> String {
+pub fn format_debug_hud(
+    camera: &Camera,
+    mode: Option<PlayMode>,
+    world: Option<DebugWorldKind>,
+) -> String {
     let mode_line = mode.map(PlayMode::label).unwrap_or("");
+    let world_line = world.map(DebugWorldKind::label).unwrap_or("");
     let pos = camera.position;
     let yaw_deg = camera.yaw.to_degrees();
     let pitch_deg = camera.pitch.to_degrees();
@@ -10,6 +15,7 @@ pub fn format_debug_hud(camera: &Camera, mode: Option<PlayMode>) -> String {
 
     format!(
         "{mode_line}\n\
+         {world_line}\n\
          POS\n\
          X {:>7.1}\n\
          Y {:>7.1}\n\

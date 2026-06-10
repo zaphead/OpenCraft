@@ -1,3 +1,4 @@
+pub mod debug_world;
 pub mod extract;
 pub mod hud;
 pub mod input;
@@ -15,11 +16,13 @@ pub use extract::{
 pub use input::sync_local_input_system;
 pub use net::client_net_system;
 pub use present::{present_frame_system, ClientRenderer};
+pub use debug_world::cycle_debug_world_system;
 pub use play_mode::toggle_play_mode_system;
 pub use spectator::spectator_camera_system;
 
 pub fn register_client_schedule(app: &mut engine_core::App) {
     app.add_system(Stage::PreUpdate, poll_assets_system);
+    app.add_system(Stage::PreUpdate, cycle_debug_world_system);
     app.add_system(Stage::PreUpdate, toggle_play_mode_system);
     app.add_system(Stage::PreUpdate, sync_local_input_system);
     app.add_system(Stage::PreUpdate, client_net_system);

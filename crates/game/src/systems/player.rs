@@ -2,28 +2,31 @@ use std::collections::HashSet;
 
 use engine_core::{SystemContext, Time};
 use engine_world::SparseVoxelOctree;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use hecs::Entity;
 
-use crate::axes::{grounded_probe_offset, horizontal_forward, horizontal_right, UP};
-use crate::components::{Collider, Mounted, NetPlayerId, Player, Transform, Velocity};
-use crate::play_mode::ActivePlayMode;
+use crate::axes::{grounded_probe_offset, UP};
+use crate::components::{Collider, GroundContact, Mounted, NetPlayerId, Player, Transform, Velocity};
 use crate::input::resolve_input;
+use crate::movement::{
+    accelerate_horizontal, apply_horizontal_drag, wish_direction_horizontal, AIR_ACCEL,
+    AIR_CONTROL_SPEED, AIR_DRAG, GROUND_ACCEL, LocomotionConfig, MOUSE_SENSITIVITY,
+};
+use crate::play_mode::{ActivePlayMode, PlayMode};
 use crate::systems::physics::collision::collides_aabb;
 
-const WALK_SPEED: f32 = 6.0;
-const JUMP_SPEED: f32 = 8.5;
-const GRAVITY: f32 = 24.0;
-const MOUSE_SENSITIVITY: f32 = 0.0012;
+const GRAVITY: f32 = 32.0;
+/// ~1.45 block apex at GRAVITY=32.
+const JUMP_SPEED: f32 = 9.6;
 
-fn player_sim_active(ctx: &SystemContext<'_>) -> bool {
+fn survival_active(ctx: &SystemContext<'_>) -> bool {
     ctx.resources
         .get::<ActivePlayMode>()
-        .is_none_or(|mode| mode.allows_player_sim())
+        .is_none_or(|mode| mode.0 == PlayMode::Survival)
 }
 
 pub fn player_look_system(ctx: &mut SystemContext<'_>) {
-    if !player_sim_active(ctx) {
+    if !survival_active(ctx) {
         return;
     }
     let mounted: HashSet<Entity> = mounted_players(ctx);
@@ -50,24 +53,27 @@ pub fn player_look_system(ctx: &mut SystemContext<'_>) {
 }
 
 pub fn player_movement_system(ctx: &mut SystemContext<'_>) {
-    if !player_sim_active(ctx) {
+    if !survival_active(ctx) {
         return;
     }
+    let delta = ctx.resources.get::<Time>().map(|time| time.delta).unwrap_or(0.0);
+    let config = LocomotionConfig::for_mode(PlayMode::Survival);
     let mounted = mounted_players(ctx);
-    let players: Vec<(Entity, Option<u32>, bool)> = ctx
+    let players: Vec<(Entity, Option<u32>, Vec3, Vec3)> = ctx
         .world
-        .query::<(&Player, &Transform, Option<&NetPlayerId>)>()
+        .query::<(&Player, &Transform, &Collider, Option<&NetPlayerId>)>()
         .iter()
-        .map(|(entity, (_, transform, net_id))| {
+        .map(|(entity, (_, transform, collider, net_id))| {
             (
                 entity,
                 net_id.map(|id| id.0),
-                is_grounded(ctx, transform.position),
+                transform.position,
+                collider.half_extents,
             )
         })
         .collect();
 
-    for (entity, net_id, grounded) in players {
+    for (entity, net_id, position, half_extents) in players {
         if mounted.contains(&entity) {
             continue;
         }
@@ -81,21 +87,50 @@ pub fn player_movement_system(ctx: &mut SystemContext<'_>) {
             continue;
         };
 
-        let forward = horizontal_forward(transform.yaw);
-        let right = horizontal_right(transform.yaw);
-        let wish = (forward * input.move_axis.y + right * input.move_axis.x).normalize_or_zero();
+        let wish = wish_direction_horizontal(transform.yaw, input.move_axis);
+        let grounded = is_grounded(ctx, position, half_extents);
+        let was_grounded = ctx
+            .world
+            .get::<&GroundContact>(entity)
+            .map(|contact| contact.grounded)
+            .unwrap_or(false);
+        let mut horiz = Vec2::new(velocity.0.x, velocity.0.y);
 
-        velocity.0.x = wish.x * WALK_SPEED;
-        velocity.0.y = wish.y * WALK_SPEED;
+        if grounded {
+            let speed = crate::movement::max_speed(config, input.sprint);
+            let target = Vec2::new(wish.x * speed, wish.y * speed);
+            if !was_grounded {
+                horiz = target;
+            } else {
+                horiz = accelerate_horizontal(horiz, target, GROUND_ACCEL * delta);
+            }
+        } else {
+            horiz = apply_horizontal_drag(horiz, AIR_DRAG, delta);
+            if wish.length_squared() > 0.0 {
+                let wish_h = Vec2::new(wish.x, wish.y);
+                let along = horiz.dot(wish_h);
+                if along < AIR_CONTROL_SPEED {
+                    let step = (AIR_ACCEL * delta).min(AIR_CONTROL_SPEED - along);
+                    horiz += wish_h * step;
+                }
+            }
+        }
+
+        velocity.0.x = horiz.x;
+        velocity.0.y = horiz.y;
 
         if input.jump && grounded {
             velocity.0.z = JUMP_SPEED;
+        }
+
+        if let Ok(mut contact) = ctx.world.get::<&mut GroundContact>(entity) {
+            contact.grounded = grounded;
         }
     }
 }
 
 pub fn player_physics_system(ctx: &mut SystemContext<'_>) {
-    if !player_sim_active(ctx) {
+    if !survival_active(ctx) {
         return;
     }
     let delta = ctx.resources.get::<Time>().map(|time| time.delta).unwrap_or(0.0);
@@ -144,11 +179,11 @@ fn mounted_players(ctx: &SystemContext<'_>) -> HashSet<Entity> {
         .collect()
 }
 
-fn is_grounded(ctx: &SystemContext<'_>, position: Vec3) -> bool {
+fn is_grounded(ctx: &SystemContext<'_>, position: Vec3, half_extents: Vec3) -> bool {
     collides_at(
         ctx,
-        position + grounded_probe_offset(),
-        Vec3::new(0.35, 0.35, 0.05),
+        position + grounded_probe_offset(half_extents.z),
+        Vec3::new(half_extents.x, half_extents.y, 0.05),
     )
 }
 

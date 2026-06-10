@@ -1,33 +1,39 @@
 use engine_core::SystemContext;
-use engine_render::Camera;
-use game::{ActivePlayMode, PlayMode, UP};
+use game::{
+    player_spawn_center_z_at, resolve_input, accelerate_toward, apply_ice_drag, max_speed,
+    wish_direction_fly, ActivePlayMode, DebugWorldKind, LocalPlayerId, LocomotionConfig,
+    MOUSE_SENSITIVITY, PlayMode,
+};
 use glam::Vec3;
 
-use crate::systems::input::PendingWinitInput;
-
-const FLY_SPEED: f32 = 4.0;
-const SPRINT_MULTIPLIER: f32 = 2.0;
-const MOUSE_SENSITIVITY: f32 = 0.0012;
+pub fn reset_spectator_for_world(world: DebugWorldKind) -> SpectatorCamera {
+    match world {
+        DebugWorldKind::ThreeBlocks => SpectatorCamera {
+            position: Vec3::new(game::DEBUG_BLOCK_SPACING as f32 + 0.5, -6.0, 5.5),
+            velocity: Vec3::ZERO,
+            yaw: 0.0,
+            pitch: -0.35,
+        },
+        DebugWorldKind::RollingHills => SpectatorCamera {
+            position: Vec3::new(0.5, 0.5, player_spawn_center_z_at(0, 0, world) + 2.0),
+            velocity: Vec3::ZERO,
+            yaw: 0.0,
+            pitch: -0.25,
+        },
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct SpectatorCamera {
     pub position: Vec3,
+    pub velocity: Vec3,
     pub yaw: f32,
     pub pitch: f32,
 }
 
-fn default_spectator_position() -> Vec3 {
-    let center_x = game::DEBUG_BLOCK_SPACING as f32;
-    Vec3::new(center_x + 0.5, -6.0, 5.5)
-}
-
 impl Default for SpectatorCamera {
     fn default() -> Self {
-        Self {
-            position: default_spectator_position(),
-            yaw: 0.0,
-            pitch: -0.35,
-        }
+        reset_spectator_for_world(DebugWorldKind::RollingHills)
     }
 }
 
@@ -39,49 +45,33 @@ pub fn spectator_camera_system(ctx: &mut SystemContext<'_>) {
     {
         return;
     }
+
     let delta = ctx.resources.get::<engine_core::Time>().map(|t| t.delta).unwrap_or(0.0);
-    let (look_delta, move_axis, vertical_axis, sprint) = ctx
+    let player_id = ctx
         .resources
-        .get::<PendingWinitInput>()
-        .map(|pending| {
-            (
-                pending.0.look_delta,
-                pending.0.move_axis,
-                pending.0.vertical_axis(),
-                pending.0.sprint,
-            )
-        })
-        .unwrap_or_default();
+        .get::<LocalPlayerId>()
+        .and_then(|local| local.id)
+        .unwrap_or(0);
+    let Some(input) = resolve_input(ctx, Some(player_id)) else {
+        return;
+    };
     let Some(camera) = ctx.resources.get_mut::<SpectatorCamera>() else {
         return;
     };
 
-    camera.yaw += look_delta.x * MOUSE_SENSITIVITY;
-    camera.pitch = (camera.pitch - look_delta.y * MOUSE_SENSITIVITY).clamp(-1.5, 1.5);
+    camera.yaw += input.look_delta.x * MOUSE_SENSITIVITY;
+    camera.pitch = (camera.pitch - input.look_delta.y * MOUSE_SENSITIVITY).clamp(-1.5, 1.5);
 
-    let render_cam = Camera {
-        position: camera.position,
-        yaw: camera.yaw,
-        pitch: camera.pitch,
-        ..Camera::default()
-    };
+    let config = LocomotionConfig::for_mode(PlayMode::Spectator);
+    let wish = wish_direction_fly(camera.yaw, input.move_axis, input.vertical_axis);
+    let speed = max_speed(config, input.sprint);
 
-    let mut forward = render_cam.forward();
-    forward.z = 0.0;
-    if forward.length_squared() > 0.0 {
-        forward = forward.normalize();
-    }
-    let mut right = render_cam.right();
-    right.z = 0.0;
-    if right.length_squared() > 0.0 {
-        right = right.normalize();
-    }
-
-    let wish = forward * move_axis.y
-        + right * move_axis.x
-        + UP * vertical_axis;
     if wish.length_squared() > 0.0 {
-        let speed = FLY_SPEED * if sprint { SPRINT_MULTIPLIER } else { 1.0 };
-        camera.position += wish.normalize() * speed * delta;
+        let target = wish * speed;
+        camera.velocity = accelerate_toward(camera.velocity, target, delta);
+    } else {
+        camera.velocity = apply_ice_drag(camera.velocity, delta);
     }
+
+    camera.position += camera.velocity * delta;
 }

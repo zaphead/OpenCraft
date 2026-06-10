@@ -1,20 +1,17 @@
 use engine_assets::{BlockRegistry, ResolvedBlockMaterials};
 use engine_render::{RenderExtractState, RebuildBudget, CHUNK_MESH_RENDER_DISTANCE};
 use engine_world::{BiomeMap, SparseVoxelOctree};
-use glam::{IVec3, Vec3};
+use game::{iter_mesh_chunks, DebugWorldKind};
+use glam::Vec3;
 
 pub const MESH_BATCH_SIZE: usize = 16;
 
-fn terrain_chunk_coords() -> impl Iterator<Item = IVec3> {
-    std::iter::once(IVec3::ZERO)
-}
-
-pub fn bootstrap_terrain_meshes(state: &mut RenderExtractState) {
+pub fn bootstrap_terrain_meshes(state: &mut RenderExtractState, world: DebugWorldKind) {
     if state.terrain_bootstrapped {
         return;
     }
     state.mesh_cache = engine_render::ChunkMeshCache::default();
-    for chunk in terrain_chunk_coords() {
+    for chunk in iter_mesh_chunks(world) {
         state.mesh_cache.mark_dirty(chunk);
     }
     state.terrain_bootstrapped = true;

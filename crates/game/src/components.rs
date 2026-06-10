@@ -17,6 +17,11 @@ pub struct Transform {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Velocity(pub Vec3);
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct GroundContact {
+    pub grounded: bool,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Collider {
     pub half_extents: Vec3,

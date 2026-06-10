@@ -1,7 +1,8 @@
 use engine_core::SystemContext;
 use game::{
-    local_player_entity, player_spawn_center_z_at, spawn_net_player, ActivePlayMode, LocalPlayerId,
-    NetworkClient, PlayMode, Transform,
+    local_player_entity, player_spawn_center_z_at, spawn_net_player, ActiveDebugWorld,
+    ActivePlayMode, LocalPlayerId, NetworkClient, PlayMode, Transform, Velocity,
+    PLAYER_EYE_OFFSET_Z,
 };
 use glam::Vec3;
 
@@ -42,9 +43,12 @@ fn enter_spectator(ctx: &mut SystemContext<'_>) {
     if let Some(entity) = local_player_entity(ctx) {
         if let Ok(transform) = ctx.world.get::<&Transform>(entity) {
             if let Some(camera) = ctx.resources.get_mut::<SpectatorCamera>() {
-                camera.position = transform.position + Vec3::new(0.0, 0.0, 0.62);
+                camera.position = transform.position + Vec3::new(0.0, 0.0, PLAYER_EYE_OFFSET_Z);
                 camera.yaw = transform.yaw;
                 camera.pitch = transform.pitch;
+                if let Ok(velocity) = ctx.world.get::<&Velocity>(entity) {
+                    camera.velocity = velocity.0;
+                }
             }
         }
         let _ = ctx.world.despawn(entity);
@@ -57,16 +61,30 @@ fn enter_spectator(ctx: &mut SystemContext<'_>) {
 }
 
 fn enter_survival(ctx: &mut SystemContext<'_>) {
-    let (position, yaw, pitch) = ctx
+    let (spawn_position, yaw, pitch, initial_velocity) = ctx
         .resources
         .get::<SpectatorCamera>()
-        .map(|camera| (camera.position, camera.yaw, camera.pitch))
-        .unwrap_or((Vec3::new(0.5, 0.5, player_spawn_center_z_at(0, 0)), 0.0, -0.2));
-
-    let column_x = position.x.floor() as i32;
-    let column_y = position.y.floor() as i32;
-    let spawn_z = player_spawn_center_z_at(column_x, column_y);
-    let spawn_position = Vec3::new(position.x, position.y, spawn_z);
+        .map(|camera| {
+            (
+                camera.position - Vec3::new(0.0, 0.0, PLAYER_EYE_OFFSET_Z),
+                camera.yaw,
+                camera.pitch,
+                camera.velocity,
+            )
+        })
+        .unwrap_or_else(|| {
+            let world = ctx
+                .resources
+                .get::<ActiveDebugWorld>()
+                .map(|active| active.0)
+                .unwrap_or_default();
+            (
+                Vec3::new(0.5, 0.5, player_spawn_center_z_at(0, 0, world)),
+                0.0,
+                -0.2,
+                Vec3::ZERO,
+            )
+        });
 
     if let Some(local) = ctx.resources.get_mut::<LocalPlayerId>() {
         local.id = Some(0);
@@ -74,6 +92,12 @@ fn enter_survival(ctx: &mut SystemContext<'_>) {
     }
 
     spawn_net_player(ctx, 0, Some((spawn_position, yaw, pitch)));
+
+    if let Some(entity) = local_player_entity(ctx) {
+        if let Ok(mut velocity) = ctx.world.get::<&mut Velocity>(entity) {
+            velocity.0 = initial_velocity;
+        }
+    }
 
     if let Some(local) = ctx.resources.get_mut::<LocalPlayerId>() {
         local.id = Some(0);

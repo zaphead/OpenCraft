@@ -7,6 +7,8 @@ use glam::Vec2;
 pub struct GameplayInput {
     pub move_axis: Vec2,
     pub look_delta: Vec2,
+    pub vertical_axis: f32,
+    pub sprint: bool,
     pub jump: bool,
     pub interact: bool,
     pub break_block: bool,

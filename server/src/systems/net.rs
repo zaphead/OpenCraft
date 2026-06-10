@@ -78,6 +78,8 @@ fn gameplay_from_packet(input: PlayerInput) -> GameplayInput {
     GameplayInput {
         move_axis: input.move_axis,
         look_delta: input.look_delta,
+        vertical_axis: 0.0,
+        sprint: false,
         jump: input.jump,
         interact: input.interact,
         break_block: input.break_block,

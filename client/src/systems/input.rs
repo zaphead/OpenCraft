@@ -20,6 +20,8 @@ pub fn sync_local_input_system(ctx: &mut SystemContext<'_>) {
     let gameplay = GameplayInput {
         move_axis: pending.0.move_axis,
         look_delta: pending.0.look_delta,
+        vertical_axis: pending.0.vertical_axis(),
+        sprint: pending.0.sprint,
         jump: pending.0.jump || (survival && pending.0.ascend),
         interact: pending.0.interact,
         break_block: pending.0.break_block,

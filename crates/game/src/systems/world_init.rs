@@ -1,9 +1,13 @@
 use engine_core::SystemContext;
 use glam::Vec3;
 
-use crate::components::{Collider, NetPlayerId, Player, Transform, Velocity, WorldInitialized};
+use crate::axes::PLAYER_HALF_EXTENTS;
+use crate::components::{
+    Collider, GroundContact, NetPlayerId, Player, Transform, Velocity, WorldInitialized,
+};
 use crate::input::LocalPlayerId;
 use crate::mode::NetworkClient;
+use crate::debug_world::ActiveDebugWorld;
 use crate::play_mode::ActivePlayMode;
 use crate::systems::terrain::player_spawn_center_z_at;
 
@@ -68,11 +72,20 @@ pub fn spawn_net_player(
     }
 
     let (position, yaw, pitch) = spawn.unwrap_or_else(|| {
+        let world = ctx
+            .resources
+            .get::<ActiveDebugWorld>()
+            .map(|active| active.0)
+            .unwrap_or_default();
         let offset = (player_id as f32 * 4.0) % 32.0;
         let column_x = offset.floor() as i32;
         let column_y = 0;
         (
-            Vec3::new(offset + 0.5, 0.5, player_spawn_center_z_at(column_x, column_y)),
+            Vec3::new(
+                offset + 0.5,
+                0.5,
+                player_spawn_center_z_at(column_x, column_y, world),
+            ),
             0.0,
             -0.2,
         )
@@ -86,8 +99,9 @@ pub fn spawn_net_player(
             pitch,
         },
         Velocity::default(),
+        GroundContact::default(),
         Collider {
-            half_extents: Vec3::new(0.3, 0.3, 1.0),
+            half_extents: PLAYER_HALF_EXTENTS,
         },
     ));
 

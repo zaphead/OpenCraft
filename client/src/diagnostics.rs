@@ -2,7 +2,7 @@ use engine_assets::BlockRegistry;
 use engine_core::App;
 use engine_render::RenderWorld;
 use engine_world::{BlockPos, SparseVoxelOctree};
-use game::{terrain_surface_z, TerrainGeneration, WorldInitialized};
+use game::{terrain_surface_z, DebugWorldKind, TerrainGeneration, WorldInitialized};
 
 /// Snapshot of client pipeline health for logs and automated diagnosis.
 #[derive(Debug, Default, Clone)]
@@ -37,7 +37,11 @@ impl ClientDiagnostics {
             app.resource::<BlockRegistry>(),
         ) {
             (Some(world), Some(registry)) => {
-                registry.is_solid(world.get_block(BlockPos::new(0, 0, terrain_surface_z(0, 0))))
+                registry.is_solid(world.get_block(BlockPos::new(
+                    0,
+                    0,
+                    terrain_surface_z(0, 0, DebugWorldKind::ThreeBlocks),
+                )))
             }
             _ => false,
         };

@@ -1,6 +1,6 @@
 use engine_core::SystemContext;
 use engine_render::{extract_render_scene, Renderer, RenderWorld};
-use game::ActivePlayMode;
+use game::{ActiveDebugWorld, ActivePlayMode};
 
 use crate::systems::hud::format_debug_hud;
 
@@ -28,7 +28,8 @@ pub fn present_frame_system(ctx: &mut SystemContext<'_>) {
     }
 
     let play_mode = ctx.resources.get::<ActivePlayMode>().map(|mode| mode.0);
-    let hud_text = format_debug_hud(&camera, play_mode);
+    let debug_world = ctx.resources.get::<ActiveDebugWorld>().map(|active| active.0);
+    let hud_text = format_debug_hud(&camera, play_mode, debug_world);
     let hud_buffer = hud_text;
 
     let Some(renderer) = ctx.resources.get_mut::<ClientRenderer>() else {

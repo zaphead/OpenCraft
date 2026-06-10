@@ -19,7 +19,7 @@ pub struct ActivePlayMode(pub PlayMode);
 
 impl Default for ActivePlayMode {
     fn default() -> Self {
-        Self(PlayMode::Spectator)
+        Self(PlayMode::Survival)
     }
 }
 
