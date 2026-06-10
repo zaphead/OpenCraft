@@ -1,0 +1,12 @@
+//! wgpu renderer, chunk meshing, and render-world extraction.
+
+mod camera;
+mod mesh;
+mod pipeline;
+mod renderer;
+mod world_mesh;
+
+pub use camera::Camera;
+pub use mesh::{cube_mesh, MeshVertex, SolidMesh};
+pub use renderer::Renderer;
+pub use world_mesh::{ChunkMeshCache, RenderScene, extract_render_scene, mesh_chunk};

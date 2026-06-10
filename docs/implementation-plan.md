@@ -66,17 +66,17 @@ flowchart TB
 
 | Phase | Name | Status | Done when |
 | ----- | ---- | ------ | --------- |
-| 0 | Workspace bootstrap | Not started | `cargo build` succeeds; crate layout matches design doc §2 |
-| 1 | ECS core + schedule | Not started | Headless tick loop runs PreUpdate → Update → PostUpdate |
-| 2 | Client window + clear screen | Not started | Window opens, wgpu clears to a color, closes cleanly |
-| 3 | Voxel world (minimal SVO) | Not started | Flat test world queryable; mutations via `WorldMutationQueue` |
-| 4 | Block registry + data files | Not started | Blocks defined in JSON/TOML; loaded into `BlockRegistry` |
-| 5 | Voxel rendering (MVP) | Not started | Greedy-meshed chunks visible; camera moves through scene |
-| 6 | Input + player controller | Not started | WASD look/move; gravity; stand on terrain |
-| 7 | Block interaction | Not started | Break/place voxels through mutation queue |
-| 8 | Terrain generation | Not started | Procedural heightmap fills a playable area at startup |
-| 9 | Chickens + mounting | Not started | Spawn, wander, mount/dismount, ride movement |
-| 10 | Server binary (local) | Not started | Headless server runs same `game` systems; client connects locally |
+| 0 | Workspace bootstrap | Complete | `cargo build` succeeds; crate layout matches design doc §2 |
+| 1 | ECS core + schedule | Complete | Headless tick loop runs PreUpdate → Update → PostUpdate |
+| 2 | Client window + clear screen | Complete | Window opens, wgpu clears to a color, closes cleanly |
+| 3 | Voxel world (minimal SVO) | Complete | Flat test world queryable; mutations via `WorldMutationQueue` |
+| 4 | Block registry + data files | Complete | Blocks defined in JSON/TOML; loaded into `BlockRegistry` |
+| 5 | Voxel rendering (MVP) | Complete | Greedy-meshed chunks visible; camera moves through scene |
+| 6 | Input + player controller | Complete | WASD look/move; gravity; stand on terrain |
+| 7 | Block interaction | Complete | Break/place voxels through mutation queue |
+| 8 | Terrain generation | Complete | Procedural heightmap fills a playable area at startup |
+| 9 | Chickens + mounting | Complete | Spawn, wander, mount/dismount, ride movement |
+| 10 | Server binary (local) | Partial | Headless server runs same `game` systems; networking not wired |
 | 11 | Render hardening | Not started | Extract phase, render thread split, GPU mesh gen (design doc §5) |
 | 12 | Networking (QUIC) | Not started | Authoritative server; client prediction stub |
 
@@ -343,7 +343,11 @@ Full client–server model per design doc §7:
 - Workspace scaffolded, all crates compile.
 -->
 
-_No entries yet._
+### 2026-06-10 — Phases 0–9 implemented
+
+- Full Cargo workspace scaffolded per design doc §2.
+- ECS scheduler, voxel world, block registry, CPU chunk meshing, wgpu client, and shared `game` systems through chicken mounting.
+- Run with `cargo run -p client` (click to capture mouse; WASD, Space, E, mouse look, LMB/RMB blocks).
 
 ---
 

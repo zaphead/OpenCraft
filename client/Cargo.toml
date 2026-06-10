@@ -11,6 +11,6 @@ engine-input = { path = "../crates/engine-input" }
 engine-assets = { path = "../crates/engine-assets" }
 game = { path = "../crates/game" }
 winit = { workspace = true }
-pollster = { workspace = true }
+glam = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }

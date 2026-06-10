@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 engine-core = { path = "../engine-core" }
 engine-world = { path = "../engine-world" }
+engine-assets = { path = "../engine-assets" }
 wgpu = { workspace = true }
 winit = { workspace = true }
 glam = { workspace = true }

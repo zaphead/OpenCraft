@@ -7,7 +7,7 @@ mod resources;
 mod schedule;
 mod time;
 
-pub use app::App;
+pub use app::{App, SystemContext};
 pub use commands::Commands;
 pub use events::Events;
 pub use resources::Resources;

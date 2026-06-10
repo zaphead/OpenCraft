@@ -1,0 +1,184 @@
+use engine_core::SystemContext;
+use engine_input::InputState;
+use glam::Vec3;
+use hecs::Entity;
+
+use crate::components::{Collider, Mounted, Mountable, Player, Rider, Transform, Velocity};
+
+const MOUNT_RANGE: f32 = 2.5;
+const MOUNT_SPEED: f32 = 10.0;
+
+pub fn mount_system(ctx: &mut SystemContext<'_>) {
+    let Some(input) = ctx.resources.get::<InputState>().cloned() else {
+        return;
+    };
+    if !input.interact {
+        return;
+    }
+
+    let player_entity = ctx
+        .world
+        .query::<&Player>()
+        .iter()
+        .next()
+        .map(|(entity, _)| entity);
+    let Some(player_entity) = player_entity else {
+        return;
+    };
+
+    if ctx.world.get::<&Mounted>(player_entity).is_ok() {
+        dismount_player(ctx, player_entity);
+        return;
+    }
+
+    let player_pos = ctx
+        .world
+        .get::<&Transform>(player_entity)
+        .map(|transform| transform.position)
+        .unwrap_or(Vec3::ZERO);
+
+    let mut closest: Option<(Entity, f32)> = None;
+    for (entity, (_, transform)) in ctx.world.query::<(&Mountable, &Transform)>().iter() {
+        if ctx.world.get::<&Rider>(entity).is_ok() {
+            continue;
+        }
+        let distance = (transform.position - player_pos).length();
+        if distance <= MOUNT_RANGE {
+            closest = Some(match closest {
+                Some((_, best)) if distance >= best => closest.unwrap(),
+                _ => (entity, distance),
+            });
+        }
+    }
+
+    let Some((mount_entity, _)) = closest else {
+        return;
+    };
+
+    ctx.world
+        .insert_one(player_entity, Mounted { mount: mount_entity })
+        .expect("insert mounted");
+    ctx.world
+        .insert_one(mount_entity, Rider {
+            rider: player_entity,
+        })
+        .expect("insert rider");
+}
+
+fn dismount_player(ctx: &mut SystemContext<'_>, player_entity: Entity) {
+    let Some(mount_entity) = ctx
+        .world
+        .get::<&Mounted>(player_entity)
+        .ok()
+        .map(|mounted| mounted.mount)
+    else {
+        return;
+    };
+
+    let side_offset = ctx
+        .world
+        .get::<&Transform>(mount_entity)
+        .map(|transform| {
+            let forward = Vec3::new(transform.yaw.sin(), 0.0, transform.yaw.cos());
+            transform.position + Vec3::new(-forward.z, 0.5, forward.x)
+        })
+        .unwrap_or(Vec3::ZERO);
+
+    if let Ok(mut transform) = ctx.world.get::<&mut Transform>(player_entity) {
+        transform.position = side_offset;
+    }
+    if let Ok(mut velocity) = ctx.world.get::<&mut Velocity>(player_entity) {
+        velocity.0 = Vec3::ZERO;
+    }
+
+    let _ = ctx.world.remove_one::<Mounted>(player_entity);
+    let _ = ctx.world.remove_one::<Rider>(mount_entity);
+}
+
+pub fn dismount_system(_ctx: &mut SystemContext<'_>) {}
+
+pub fn mounted_movement_system(ctx: &mut SystemContext<'_>) {
+    let Some(input) = ctx.resources.get::<InputState>().cloned() else {
+        return;
+    };
+
+    let pairs: Vec<(Entity, Entity)> = ctx
+        .world
+        .query::<(&Player, &Mounted)>()
+        .iter()
+        .map(|(player_entity, (_, mounted))| (player_entity, mounted.mount))
+        .collect();
+
+    for (player_entity, mount_entity) in pairs {
+        let Ok(mut mount_transform) = ctx.world.get::<&mut Transform>(mount_entity) else {
+            continue;
+        };
+        let Ok(mut mount_velocity) = ctx.world.get::<&mut Velocity>(mount_entity) else {
+            continue;
+        };
+        let Ok(mut player_transform) = ctx.world.get::<&mut Transform>(player_entity) else {
+            continue;
+        };
+
+        mount_transform.yaw -= input.look_delta.x * 0.002;
+        let forward = Vec3::new(mount_transform.yaw.sin(), 0.0, mount_transform.yaw.cos());
+        let right = Vec3::new(forward.z, 0.0, -forward.x);
+        let wish = (forward * input.move_axis.y + right * input.move_axis.x).normalize_or_zero();
+
+        mount_velocity.0.x = wish.x * MOUNT_SPEED;
+        mount_velocity.0.z = wish.z * MOUNT_SPEED;
+
+        player_transform.position = mount_transform.position + Vec3::new(0.0, 0.9, 0.0);
+        player_transform.yaw = mount_transform.yaw;
+        player_transform.pitch = -0.25;
+    }
+}
+
+pub fn mounted_physics_system(ctx: &mut SystemContext<'_>) {
+    let delta = ctx
+        .resources
+        .get::<engine_core::Time>()
+        .map(|time| time.delta)
+        .unwrap_or(0.0);
+
+    let mounts: Vec<(Entity, Vec3, Vec3, Vec3)> = ctx
+        .world
+        .query::<(&Player, &Mounted)>()
+        .iter()
+        .filter_map(|(_, (_, mounted))| {
+            let mount_entity = mounted.mount;
+            let transform = ctx.world.get::<&Transform>(mount_entity).ok()?;
+            let velocity = ctx.world.get::<&Velocity>(mount_entity).ok()?;
+            let collider = ctx.world.get::<&Collider>(mount_entity).ok()?;
+            Some((
+                mount_entity,
+                transform.position,
+                velocity.0,
+                collider.half_extents,
+            ))
+        })
+        .collect();
+
+    for (mount_entity, start_position, mut velocity, half_extents) in mounts {
+        velocity.y -= 18.0 * delta;
+        let mut position = start_position;
+        for axis in 0..3 {
+            let delta_axis = velocity[axis] * delta;
+            if delta_axis == 0.0 {
+                continue;
+            }
+            position[axis] += delta_axis;
+            if crate::systems::player::collides_at(ctx, position, half_extents) {
+                position[axis] -= delta_axis;
+                velocity[axis] = 0.0;
+            }
+        }
+
+        if let Ok(mut transform) = ctx.world.get::<&mut Transform>(mount_entity) {
+            transform.position = position;
+        }
+        if let Ok(mut velocity_ref) = ctx.world.get::<&mut Velocity>(mount_entity) {
+            velocity_ref.0 = velocity;
+        }
+    }
+}
