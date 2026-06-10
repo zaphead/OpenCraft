@@ -45,6 +45,11 @@ fn apply_keyboard(input: &mut InputState, event: &KeyEvent) {
                 input.interact = true;
             }
         }
+        KeyCode::KeyM => {
+            if pressed {
+                input.toggle_play_mode = true;
+            }
+        }
         _ => {}
     }
 }

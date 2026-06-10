@@ -63,28 +63,55 @@ pub fn pack_vertex_anim(anim: Option<AnimIndex>, rect: UvRect) -> u32 {
     frame_count | (frametime << 8) | (stride_u16 << 16)
 }
 
+/// Side-face UVs keep texture V aligned with world +Z so grass fringe sits on the top edge.
+#[cfg(test)]
+pub fn side_face_grass_fringe_on_top_z(corners: [Vec3; 4], uvs: [[f32; 2]; 4]) -> bool {
+    let mut top_z = f32::NEG_INFINITY;
+    let mut bottom_z = f32::INFINITY;
+    for corner in corners {
+        top_z = top_z.max(corner.z);
+        bottom_z = bottom_z.min(corner.z);
+    }
+    let top_v = uvs
+        .iter()
+        .zip(corners)
+        .filter(|(_, corner)| (corner.z - top_z).abs() < 1e-5)
+        .map(|(uv, _)| uv[1])
+        .sum::<f32>()
+        / corners
+            .iter()
+            .filter(|corner| (corner.z - top_z).abs() < 1e-5)
+            .count()
+            .max(1) as f32;
+    let bottom_v = uvs
+        .iter()
+        .zip(corners)
+        .filter(|(_, corner)| (corner.z - bottom_z).abs() < 1e-5)
+        .map(|(uv, _)| uv[1])
+        .sum::<f32>()
+        / corners
+            .iter()
+            .filter(|corner| (corner.z - bottom_z).abs() < 1e-5)
+            .count()
+            .max(1) as f32;
+    top_v < bottom_v
+}
+
 pub fn face_uvs(face: CubeFace, uv: UvRect) -> [[f32; 2]; 4] {
     let [u0, v0] = uv.min;
     let [u1, v1] = uv.max;
     match face {
-        CubeFace::Right => [
-            [u0, v1],
-            [u0, v0],
-            [u1, v0],
-            [u1, v1],
-        ],
+        CubeFace::Right => [[u0, v1], [u1, v1], [u1, v0], [u0, v0]],
         CubeFace::Left => [
             [u0, v1],
-            [u1, v1],
-            [u1, v0],
             [u0, v0],
+            [u1, v0],
+            [u1, v1],
         ],
-        CubeFace::Front | CubeFace::Back | CubeFace::Top => {
-            [[u0, v1], [u1, v1], [u1, v0], [u0, v0]]
-        }
-        CubeFace::Bottom => {
-            [[u1, v1], [u1, v0], [u0, v0], [u0, v1]]
-        }
+        CubeFace::Front => [[u0, v0], [u1, v0], [u1, v1], [u0, v1]],
+        CubeFace::Top => [[u0, v1], [u1, v1], [u1, v0], [u0, v0]],
+        CubeFace::Back => [[u0, v1], [u1, v1], [u1, v0], [u0, v0]],
+        CubeFace::Bottom => [[u0, v0], [u0, v1], [u1, v1], [u1, v0]],
     }
 }
 
@@ -100,24 +127,24 @@ pub fn face_corners(origin: Vec3, normal: [f32; 3]) -> [Vec3; 4] {
         ]
     } else if nx < 0.0 {
         [
+            origin + Vec3::new(0.0, 0.0, 0.0),
             origin + Vec3::new(0.0, 0.0, 1.0),
             origin + Vec3::new(0.0, 1.0, 1.0),
             origin + Vec3::new(0.0, 1.0, 0.0),
-            origin + Vec3::new(0.0, 0.0, 0.0),
         ]
     } else if ny > 0.0 {
         [
-            origin + Vec3::new(0.0, 1.0, 0.0),
-            origin + Vec3::new(1.0, 1.0, 0.0),
-            origin + Vec3::new(1.0, 1.0, 1.0),
             origin + Vec3::new(0.0, 1.0, 1.0),
+            origin + Vec3::new(1.0, 1.0, 1.0),
+            origin + Vec3::new(1.0, 1.0, 0.0),
+            origin + Vec3::new(0.0, 1.0, 0.0),
         ]
     } else if ny < 0.0 {
         [
-            origin + Vec3::new(0.0, 0.0, 1.0),
-            origin + Vec3::new(1.0, 0.0, 1.0),
-            origin + Vec3::new(1.0, 0.0, 0.0),
             origin + Vec3::new(0.0, 0.0, 0.0),
+            origin + Vec3::new(1.0, 0.0, 0.0),
+            origin + Vec3::new(1.0, 0.0, 1.0),
+            origin + Vec3::new(0.0, 0.0, 1.0),
         ]
     } else if nz > 0.0 {
         [
@@ -128,10 +155,10 @@ pub fn face_corners(origin: Vec3, normal: [f32; 3]) -> [Vec3; 4] {
         ]
     } else {
         [
-            origin + Vec3::new(1.0, 0.0, 0.0),
-            origin + Vec3::new(1.0, 1.0, 0.0),
-            origin + Vec3::new(0.0, 1.0, 0.0),
             origin + Vec3::new(0.0, 0.0, 0.0),
+            origin + Vec3::new(0.0, 1.0, 0.0),
+            origin + Vec3::new(1.0, 1.0, 0.0),
+            origin + Vec3::new(1.0, 0.0, 0.0),
         ]
     }
 }

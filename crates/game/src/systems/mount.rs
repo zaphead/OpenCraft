@@ -124,7 +124,7 @@ pub fn mounted_movement_system(ctx: &mut SystemContext<'_>) {
             continue;
         };
 
-        mount_transform.yaw -= input.look_delta.x * 0.002;
+        mount_transform.yaw += input.look_delta.x * 0.002;
         let forward = horizontal_forward(mount_transform.yaw);
         let right = horizontal_right(mount_transform.yaw);
         let wish = (forward * input.move_axis.y + right * input.move_axis.x).normalize_or_zero();

@@ -5,6 +5,7 @@ use wgpu::SurfaceError;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
+use crate::hud::HudPipeline;
 use crate::mesh::SolidMesh;
 use crate::pipeline::{GpuMesh, RenderPipelines};
 use crate::world_mesh::RenderScene;
@@ -21,6 +22,7 @@ pub struct Renderer {
     colormap_rect: Option<UvRect>,
     opaque_meshes: Vec<GpuMesh>,
     cutout_meshes: Vec<GpuMesh>,
+    hud: HudPipeline,
 }
 
 impl Renderer {
@@ -84,6 +86,8 @@ impl Renderer {
             colormap_rect,
         );
 
+        let hud = HudPipeline::new(&device, surface_format);
+
         Self {
             window,
             surface,
@@ -96,6 +100,7 @@ impl Renderer {
             colormap_rect,
             opaque_meshes: Vec::new(),
             cutout_meshes: Vec::new(),
+            hud,
         }
     }
 
@@ -129,7 +134,14 @@ impl Renderer {
         };
     }
 
-    pub fn render(&mut self, scene: &RenderScene) -> Result<(), SurfaceError> {
+    pub fn render(&mut self, scene: &RenderScene, hud_label: Option<&str>) -> Result<(), SurfaceError> {
+        if let Some(label) = hud_label {
+            self.hud
+                .set_text(&self.queue, label, self.config.width, self.config.height);
+        } else {
+            self.hud
+                .set_text(&self.queue, "", self.config.width, self.config.height);
+        }
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -229,6 +241,24 @@ impl Renderer {
             pass.set_bind_group(0, &self.pipelines.scene_bind_group, &[]);
             pass.set_bind_group(1, &self.pipelines.atlas_bind_group, &[]);
             draw_meshes(&mut pass, &self.cutout_meshes);
+        }
+
+        if hud_label.is_some() {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("hud_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            self.hud.draw(&mut pass);
         }
 
         self.queue.submit(Some(encoder.finish()));

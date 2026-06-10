@@ -79,27 +79,33 @@ fn shade_lit(rgb: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fs_opaque(input: VertexOutput) -> @location(0) vec4<f32> {
-    var albedo = sample_albedo(input.uv, input.anim_packed);
+    let base = sample_albedo(input.uv, input.anim_packed);
+    var albedo = base;
     if (input.flags & 1u) != 0u {
-        let overlay = sample_albedo(input.uv2, 0u);
-        albedo = vec4<f32>(mix(albedo.rgb, overlay.rgb, overlay.a), 1.0);
+        var overlay = sample_albedo(input.uv2, 0u);
+        overlay = vec4<f32>(apply_tint(overlay.rgb, input.tint_index), overlay.a);
+        albedo = vec4<f32>(mix(base.rgb, overlay.rgb, overlay.a), 1.0);
+    } else {
+        albedo = vec4<f32>(apply_tint(base.rgb, input.tint_index), base.a);
     }
-    let tinted = apply_tint(albedo.rgb, input.tint_index);
-    return vec4<f32>(shade_lit(tinted, input.normal), 1.0);
+    return vec4<f32>(shade_lit(albedo.rgb, input.normal), 1.0);
 }
 
 @fragment
 fn fs_cutout(input: VertexOutput) -> @location(0) vec4<f32> {
-    var albedo = sample_albedo(input.uv, input.anim_packed);
+    let base = sample_albedo(input.uv, input.anim_packed);
+    var albedo = base;
     if (input.flags & 1u) != 0u {
-        let overlay = sample_albedo(input.uv2, 0u);
-        albedo = vec4<f32>(mix(albedo.rgb, overlay.rgb, overlay.a), albedo.a);
+        var overlay = sample_albedo(input.uv2, 0u);
+        overlay = vec4<f32>(apply_tint(overlay.rgb, input.tint_index), overlay.a);
+        albedo = vec4<f32>(mix(base.rgb, overlay.rgb, overlay.a), base.a);
+    } else {
+        albedo = vec4<f32>(apply_tint(base.rgb, input.tint_index), base.a);
     }
     if albedo.a < 0.5 {
         discard;
     }
-    let tinted = apply_tint(albedo.rgb, input.tint_index);
-    return vec4<f32>(shade_lit(tinted, input.normal), 1.0);
+    return vec4<f32>(shade_lit(albedo.rgb, input.normal), 1.0);
 }
 
 @fragment

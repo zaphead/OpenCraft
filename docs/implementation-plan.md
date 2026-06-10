@@ -19,7 +19,7 @@
 
 Multiplayer, audio, advanced LOD, and polish are explicitly out of scope until after this loop works locally.
 
-**Current local client:** spectator free-cam only (WASD on XY, Space/Ctrl on Z, mouse look). No player controller, block interaction, or mobs until phases 6–7 and 9 are re-enabled.
+**Current local client:** **Survival** (walk, jump, gravity, 2-block-tall player) and **Spectator** (free-fly) toggled with **M**; mode label top-left. Rolling-hill terrain via simple 2D noise. Block interaction and mobs still deferred (phases 7, 9).
 
 ---
 
@@ -74,9 +74,9 @@ flowchart TB
 | 3     | Voxel world (minimal SVO)    | Complete | Flat test world queryable; mutations via `WorldMutationQueue`                                                                      |
 | 4     | Block registry + data files  | Complete | Blocks defined in JSON/TOML; loaded into `BlockRegistry`                                                                           |
 | 5     | Voxel rendering (MVP)        | Complete | Greedy-meshed chunks visible; camera moves through scene                                                                           |
-| 6     | Input + player controller    | Deferred | Local client is spectator-only; server player systems kept Z-up for future multiplayer                                             |
+| 6     | Input + player controller    | In progress | Survival mode on local client: WASD, Space jump, gravity, 2-block collider; Spectator via M toggle                               |
 | 7     | Block interaction            | Deferred | Not registered on local client until player controller returns                                                                     |
-| 8     | Terrain generation           | Complete | Flat grass plane on XY at z=0                                                                                                      |
+| 8     | Terrain generation           | Complete | Rolling hills: 2D value-noise heightmap, grass/dirt/stone columns, 128×128 radius                                                  |
 | 9     | Chickens + mounting          | Deferred | Mob systems unwired; focus on world + spectator camera first                                                                       |
 | 10    | Server binary (local)        | Complete | Headless authoritative server; QUIC on `127.0.0.1:4242`                                                                            |
 | 11    | Render hardening             | Complete | Extract/render boundary, depth prepass, render-submit thread (surface on main), GPU compute mesh path, screen-space LOD + seam fix |

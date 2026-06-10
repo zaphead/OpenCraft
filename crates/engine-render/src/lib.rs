@@ -3,12 +3,14 @@
 mod camera;
 mod ctm;
 mod extract;
+mod hud;
 mod mesh;
 mod pipeline;
 mod renderer;
 mod world_mesh;
 
 pub use camera::Camera;
+pub use hud::HudPipeline;
 pub use extract::{RenderExtractState, RenderSurfaceInfo, RenderWorld};
 pub use mesh::{append_face, MeshBuckets, MeshVertex, SolidMesh, VERTEX_FLAG_OVERLAY};
 pub use renderer::Renderer;

@@ -16,7 +16,7 @@ use crate::material::resolved::{
 
 use atlas_alloc::{alloc_face_tile, load_albedo};
 use colormap::{ensure_atlas_budget, pack_colormaps};
-use faces::parse_faces;
+use faces::{albedo_sample_face, face_tint_mode, parse_faces};
 use overlay::pack_overlay_layers;
 
 pub fn pack_block_materials(
@@ -136,13 +136,14 @@ fn pack_cube_v1_block(
     let tint = definition.tint_mode();
 
     for face in CubeFace::ALL {
-        let rect = alloc_face_tile(pixels, atlas_size, tile_size, grid, next_slot, &image, face)?;
+        let sample = albedo_sample_face(face, overlay_uvs.contains_key(&face));
+        let rect = alloc_face_tile(pixels, atlas_size, tile_size, grid, next_slot, &image, sample)?;
         let uv2 = overlay_uvs.get(&face).copied();
         let resolved = ResolvedFace {
             atlas_rect: rect,
             draw_category: draw,
             uv2,
-            tint,
+            tint: face_tint_mode(face, tint),
             anim: animation::pack_face_animation(material_dir, face)?,
         };
         default_faces.insert(definition.id, face, resolved);
@@ -179,7 +180,29 @@ fn pack_cube_v1_block(
 mod tests {
     use super::*;
     use crate::blocks::load_block_registry;
+    use crate::material::TintMode;
     use crate::server::blocks_asset_path;
+
+    #[test]
+    fn grass_bottom_face_has_no_biome_tint() {
+        let client = concat!(env!("CARGO_MANIFEST_DIR"), "/../../client");
+        let registry = load_block_registry(&blocks_asset_path(client));
+        let textures = crate::atlas::textures_asset_path(client);
+        let packed = pack_block_materials(&textures, &registry).expect("pack");
+        let grass = registry.id_by_name("grass").expect("grass");
+        let bottom = packed
+            .tables
+            .default_faces
+            .get(grass, CubeFace::Bottom)
+            .expect("bottom");
+        let top = packed
+            .tables
+            .default_faces
+            .get(grass, CubeFace::Top)
+            .expect("top");
+        assert_eq!(bottom.tint, TintMode::None);
+        assert_eq!(top.tint, TintMode::BiomeGrass);
+    }
 
     #[test]
     fn grass_side_faces_have_overlay_uv2() {
@@ -215,6 +238,48 @@ mod tests {
             .get(leaves, CubeFace::Top)
             .expect("face");
         assert_eq!(face.draw_category, DrawCategory::Cutout);
+    }
+
+    #[test]
+    fn grass_side_base_matches_dirt_not_black() {
+        let client = concat!(env!("CARGO_MANIFEST_DIR"), "/../../client");
+        let registry = load_block_registry(&blocks_asset_path(client));
+        let textures = crate::atlas::textures_asset_path(client);
+        let packed = pack_block_materials(&textures, &registry).expect("pack");
+        let grass = registry.id_by_name("grass").expect("grass");
+        let dirt = registry.id_by_name("dirt").expect("dirt");
+        let side = packed
+            .tables
+            .default_faces
+            .get(grass, CubeFace::Front)
+            .expect("side");
+        let dirt_face = packed
+            .tables
+            .default_faces
+            .get(dirt, CubeFace::Top)
+            .expect("dirt");
+        let side_px = atlas_center_pixel(&packed, side.atlas_rect);
+        let dirt_px = atlas_center_pixel(&packed, dirt_face.atlas_rect);
+        assert!(
+            side_px[0] > 20 && side_px[1] > 10,
+            "grass side base should be dirt-colored, got {:?}",
+            side_px
+        );
+        assert!(
+            (side_px[0] as i32 - dirt_px[0] as i32).abs() < 30,
+            "grass side base should match dirt, side={side_px:?} dirt={dirt_px:?}"
+        );
+    }
+
+    fn atlas_center_pixel(materials: &ResolvedBlockMaterials, rect: crate::atlas::UvRect) -> [u8; 4] {
+        let atlas = &materials.atlas;
+        let u = (rect.min[0] + rect.max[0]) * 0.5;
+        let v = (rect.min[1] + rect.max[1]) * 0.5;
+        let x = (u * atlas.width as f32) as u32;
+        let y = (v * atlas.height as f32) as u32;
+        let idx = ((y * atlas.width + x) * 4) as usize;
+        let p = &atlas.pixels[idx..idx + 4];
+        [p[0], p[1], p[2], p[3]]
     }
 
     #[test]

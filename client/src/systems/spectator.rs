@@ -1,6 +1,6 @@
 use engine_core::SystemContext;
 use engine_render::Camera;
-use game::{player_spawn_center_z, UP};
+use game::{ActivePlayMode, PlayMode, UP};
 use glam::Vec3;
 
 use crate::systems::input::PendingWinitInput;
@@ -17,7 +17,8 @@ pub struct SpectatorCamera {
 }
 
 fn default_spectator_position() -> Vec3 {
-    Vec3::new(0.5, 0.5, player_spawn_center_z() + 4.0)
+    let center_x = game::DEBUG_BLOCK_SPACING as f32;
+    Vec3::new(center_x + 0.5, -6.0, 5.5)
 }
 
 impl Default for SpectatorCamera {
@@ -31,6 +32,13 @@ impl Default for SpectatorCamera {
 }
 
 pub fn spectator_camera_system(ctx: &mut SystemContext<'_>) {
+    if ctx
+        .resources
+        .get::<ActivePlayMode>()
+        .is_some_and(|mode| mode.0 != PlayMode::Spectator)
+    {
+        return;
+    }
     let delta = ctx.resources.get::<engine_core::Time>().map(|t| t.delta).unwrap_or(0.0);
     let (look_delta, move_axis, vertical_axis, sprint) = ctx
         .resources

@@ -1,22 +1,12 @@
 use engine_assets::{BlockRegistry, ResolvedBlockMaterials};
 use engine_render::{RenderExtractState, RebuildBudget, CHUNK_MESH_RENDER_DISTANCE};
-use engine_world::{BiomeMap, SparseVoxelOctree, CHUNK_SIZE};
-use game::{GRASS_PLANE_Z, WORLD_RADIUS};
+use engine_world::{BiomeMap, SparseVoxelOctree};
 use glam::{IVec3, Vec3};
 
 pub const MESH_BATCH_SIZE: usize = 16;
 
 fn terrain_chunk_coords() -> impl Iterator<Item = IVec3> {
-    let min = -WORLD_RADIUS;
-    let max = WORLD_RADIUS - 1;
-    let min_cx = min.div_euclid(CHUNK_SIZE);
-    let max_cx = max.div_euclid(CHUNK_SIZE);
-    let min_cy = min.div_euclid(CHUNK_SIZE);
-    let max_cy = max.div_euclid(CHUNK_SIZE);
-    let chunk_z = GRASS_PLANE_Z.div_euclid(CHUNK_SIZE);
-    (min_cx..=max_cx).flat_map(move |cx| {
-        (min_cy..=max_cy).map(move |cy| IVec3::new(cx, cy, chunk_z))
-    })
+    std::iter::once(IVec3::ZERO)
 }
 
 pub fn bootstrap_terrain_meshes(state: &mut RenderExtractState) {
@@ -54,7 +44,7 @@ pub fn rebuild_chunk_meshes(
         biome,
         camera_position,
         budget,
-        true,
+        false,
     )
 }
 

@@ -4,10 +4,18 @@ use glam::Vec3;
 use crate::components::{Collider, NetPlayerId, Player, Transform, Velocity, WorldInitialized};
 use crate::input::LocalPlayerId;
 use crate::mode::NetworkClient;
-use crate::systems::terrain::player_spawn_center_z;
+use crate::play_mode::ActivePlayMode;
+use crate::systems::terrain::player_spawn_center_z_at;
 
 pub fn spawn_local_player_system(ctx: &mut SystemContext<'_>) {
     if ctx.resources.get::<NetworkClient>().is_some() {
+        return;
+    }
+    if ctx
+        .resources
+        .get::<ActivePlayMode>()
+        .is_some_and(|mode| !mode.allows_player_sim())
+    {
         return;
     }
     spawn_when_ready(ctx, || 0);
@@ -42,10 +50,14 @@ fn spawn_when_ready(ctx: &mut SystemContext<'_>, player_id: impl FnOnce() -> u32
     if ctx.world.query::<&Player>().iter().next().is_some() {
         return;
     }
-    spawn_net_player(ctx, player_id());
+    spawn_net_player(ctx, player_id(), None);
 }
 
-pub fn spawn_net_player(ctx: &mut SystemContext<'_>, player_id: u32) {
+pub fn spawn_net_player(
+    ctx: &mut SystemContext<'_>,
+    player_id: u32,
+    spawn: Option<(Vec3, f32, f32)>,
+) {
     if ctx
         .world
         .query::<&NetPlayerId>()
@@ -55,19 +67,27 @@ pub fn spawn_net_player(ctx: &mut SystemContext<'_>, player_id: u32) {
         return;
     }
 
-    let offset = (player_id as f32 * 4.0) % 32.0;
-    let z = player_spawn_center_z();
+    let (position, yaw, pitch) = spawn.unwrap_or_else(|| {
+        let offset = (player_id as f32 * 4.0) % 32.0;
+        let column_x = offset.floor() as i32;
+        let column_y = 0;
+        (
+            Vec3::new(offset + 0.5, 0.5, player_spawn_center_z_at(column_x, column_y)),
+            0.0,
+            -0.2,
+        )
+    });
     ctx.world.spawn((
         Player,
         NetPlayerId(player_id),
         Transform {
-            position: Vec3::new(offset + 0.5, 0.5, z),
-            yaw: 0.0,
-            pitch: -0.2,
+            position,
+            yaw,
+            pitch,
         },
         Velocity::default(),
         Collider {
-            half_extents: Vec3::new(0.35, 0.9, 0.35),
+            half_extents: Vec3::new(0.3, 0.3, 1.0),
         },
     ));
 

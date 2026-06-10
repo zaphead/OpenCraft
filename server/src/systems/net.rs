@@ -14,7 +14,7 @@ pub fn server_net_system(ctx: &mut SystemContext<'_>) {
     for (client_id, packet) in packets {
         match packet {
             ClientPacket::Join => {
-                spawn_net_player(ctx, client_id);
+                spawn_net_player(ctx, client_id, None);
             }
             ClientPacket::Input(input) => {
                 if let Some(inputs) = ctx.resources.get_mut::<PlayerInputs>() {

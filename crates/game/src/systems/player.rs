@@ -7,6 +7,7 @@ use hecs::Entity;
 
 use crate::axes::{grounded_probe_offset, horizontal_forward, horizontal_right, UP};
 use crate::components::{Collider, Mounted, NetPlayerId, Player, Transform, Velocity};
+use crate::play_mode::ActivePlayMode;
 use crate::input::resolve_input;
 use crate::systems::physics::collision::collides_aabb;
 
@@ -15,7 +16,16 @@ const JUMP_SPEED: f32 = 8.5;
 const GRAVITY: f32 = 24.0;
 const MOUSE_SENSITIVITY: f32 = 0.0012;
 
+fn player_sim_active(ctx: &SystemContext<'_>) -> bool {
+    ctx.resources
+        .get::<ActivePlayMode>()
+        .is_none_or(|mode| mode.allows_player_sim())
+}
+
 pub fn player_look_system(ctx: &mut SystemContext<'_>) {
+    if !player_sim_active(ctx) {
+        return;
+    }
     let mounted: HashSet<Entity> = mounted_players(ctx);
     let players: Vec<(Entity, Option<u32>)> = ctx
         .world
@@ -32,7 +42,7 @@ pub fn player_look_system(ctx: &mut SystemContext<'_>) {
             continue;
         };
         if let Ok(mut transform) = ctx.world.get::<&mut Transform>(entity) {
-            transform.yaw -= input.look_delta.x * MOUSE_SENSITIVITY;
+            transform.yaw += input.look_delta.x * MOUSE_SENSITIVITY;
             transform.pitch = (transform.pitch - input.look_delta.y * MOUSE_SENSITIVITY)
                 .clamp(-1.5, 1.5);
         }
@@ -40,6 +50,9 @@ pub fn player_look_system(ctx: &mut SystemContext<'_>) {
 }
 
 pub fn player_movement_system(ctx: &mut SystemContext<'_>) {
+    if !player_sim_active(ctx) {
+        return;
+    }
     let mounted = mounted_players(ctx);
     let players: Vec<(Entity, Option<u32>, bool)> = ctx
         .world
@@ -82,6 +95,9 @@ pub fn player_movement_system(ctx: &mut SystemContext<'_>) {
 }
 
 pub fn player_physics_system(ctx: &mut SystemContext<'_>) {
+    if !player_sim_active(ctx) {
+        return;
+    }
     let delta = ctx.resources.get::<Time>().map(|time| time.delta).unwrap_or(0.0);
     let mounted = mounted_players(ctx);
 

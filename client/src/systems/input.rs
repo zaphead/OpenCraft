@@ -1,6 +1,6 @@
 use engine_core::SystemContext;
 use engine_input::InputState;
-use game::{GameplayInput, LocalPlayerId, PlayerInputs};
+use game::{ActivePlayMode, GameplayInput, LocalPlayerId, PlayMode, PlayerInputs};
 
 pub struct PendingWinitInput(pub InputState);
 
@@ -12,10 +12,15 @@ pub fn sync_local_input_system(ctx: &mut SystemContext<'_>) {
         .and_then(|local| local.id)
         .unwrap_or(0);
 
+    let survival = ctx
+        .resources
+        .get::<ActivePlayMode>()
+        .is_none_or(|mode| mode.0 == PlayMode::Survival);
+
     let gameplay = GameplayInput {
         move_axis: pending.0.move_axis,
         look_delta: pending.0.look_delta,
-        jump: pending.0.jump,
+        jump: pending.0.jump || (survival && pending.0.ascend),
         interact: pending.0.interact,
         break_block: pending.0.break_block,
         place_block: pending.0.place_block,

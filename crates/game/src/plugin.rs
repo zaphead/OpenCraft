@@ -33,9 +33,11 @@ pub fn register_server_systems(app: &mut App) {
     register_authoritative_block_system(app);
 }
 
-/// Local client: world sim only — spectator camera handles movement on the client.
+/// Local client: terrain + survival player sim (spectator camera gated by play mode).
 pub fn register_local_client_systems(app: &mut App) {
     register_world_systems(app);
+    register_player_spawn_systems(app);
+    register_player_systems(app);
 }
 
 pub fn register_network_client_systems(app: &mut App) {

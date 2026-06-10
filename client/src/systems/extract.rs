@@ -4,10 +4,12 @@ use engine_assets::{BlockRegistry, ResolvedBlockMaterials};
 use engine_core::{SystemContext, Time};
 use engine_render::{Camera, RenderExtractState, RenderSurfaceInfo, RenderWorld};
 use engine_world::{BiomeMap, SparseVoxelOctree, VoxelChanged};
-use game::WorldInitialized;
+use game::{local_player_entity, ActivePlayMode, PlayMode, Transform, WorldInitialized};
 
 use crate::mesh_pipeline::{bootstrap_terrain_meshes, rebuild_budget_for_extract, rebuild_chunk_meshes};
 use crate::systems::spectator::SpectatorCamera;
+
+const EYE_OFFSET_Z: f32 = 0.62;
 
 pub fn sync_block_changes_system(ctx: &mut SystemContext<'_>) {
     let Some(state) = ctx.resources.get_mut::<RenderExtractState>() else {
@@ -90,6 +92,25 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
 }
 
 fn extract_camera(ctx: &SystemContext<'_>, aspect: f32) -> Camera {
+    let survival = ctx
+        .resources
+        .get::<ActivePlayMode>()
+        .is_none_or(|mode| mode.0 == PlayMode::Survival);
+
+    if survival {
+        if let Some(entity) = local_player_entity(ctx) {
+            if let Ok(transform) = ctx.world.get::<&Transform>(entity) {
+                return Camera {
+                    position: transform.position + glam::Vec3::new(0.0, 0.0, EYE_OFFSET_Z),
+                    yaw: transform.yaw,
+                    pitch: transform.pitch,
+                    aspect,
+                    ..Camera::default()
+                };
+            }
+        }
+    }
+
     let spectator = ctx
         .resources
         .get::<SpectatorCamera>()

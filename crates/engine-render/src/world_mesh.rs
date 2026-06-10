@@ -327,6 +327,143 @@ mod tests {
     }
 
     #[test]
+    fn dirt_debug_view_winds_visible_faces_ccw() {
+        use crate::camera::Camera;
+        use crate::mesh::face_corners;
+        use glam::Vec4;
+
+        let camera = Camera {
+            position: glam::Vec3::new(6.4, -2.8, 2.1),
+            yaw: 16.3_f32.to_radians(),
+            pitch: -23.4_f32.to_radians(),
+            aspect: 16.0 / 9.0,
+            ..Camera::default()
+        };
+        let block_center = glam::Vec3::new(7.5, 0.5, 0.5);
+        let to_cam = (camera.position - block_center).normalize();
+
+        let normals: [[f32; 3]; 6] = [
+            [1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, -1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0],
+        ];
+
+        let vp = camera.view_projection();
+        for normal in normals {
+            let outward = Vec3::from_array(normal);
+            if outward.dot(to_cam) <= 0.0 {
+                continue;
+            }
+            let corners = face_corners(glam::Vec3::new(7.0, 0.0, 0.0), normal);
+            let ndc: Vec<glam::Vec3> = corners
+                .iter()
+                .map(|p| {
+                    let clip = vp * Vec4::new(p.x, p.y, p.z, 1.0);
+                    clip.truncate() / clip.w
+                })
+                .collect();
+            let cross = (ndc[1] - ndc[0]).cross(ndc[2] - ndc[0]);
+            assert!(
+                cross.z > 0.0,
+                "visible face {:?} should be CCW in clip space, cross.z={}",
+                normal,
+                cross.z
+            );
+        }
+    }
+
+    #[test]
+    fn dirt_bottom_view_winds_visible_faces_ccw() {
+        use crate::camera::Camera;
+        use crate::mesh::face_corners;
+        use glam::Vec4;
+
+        let camera = Camera {
+            position: glam::Vec3::new(8.8, 2.4, -1.2),
+            yaw: 203.4_f32.to_radians(),
+            pitch: 23.3_f32.to_radians(),
+            aspect: 16.0 / 9.0,
+            ..Camera::default()
+        };
+        let block_center = glam::Vec3::new(7.5, 0.5, 0.5);
+        let to_cam = (camera.position - block_center).normalize();
+
+        let normals: [[f32; 3]; 6] = [
+            [1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, -1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0],
+        ];
+
+        let vp = camera.view_projection();
+        for normal in normals {
+            let outward = Vec3::from_array(normal);
+            if outward.dot(to_cam) <= 0.0 {
+                continue;
+            }
+            let corners = face_corners(glam::Vec3::new(7.0, 0.0, 0.0), normal);
+            let ndc: Vec<glam::Vec3> = corners
+                .iter()
+                .map(|p| {
+                    let clip = vp * Vec4::new(p.x, p.y, p.z, 1.0);
+                    clip.truncate() / clip.w
+                })
+                .collect();
+            let cross = (ndc[1] - ndc[0]).cross(ndc[2] - ndc[0]);
+            assert!(
+                cross.z > 0.0,
+                "visible face {:?} should be CCW in clip space, cross.z={}",
+                normal,
+                cross.z
+            );
+        }
+    }
+
+    #[test]
+    fn side_face_uvs_keep_grass_fringe_on_top_z() {
+        use crate::mesh::{face_corners, face_uvs, side_face_grass_fringe_on_top_z};
+        use engine_assets::{pack_block_materials, CubeFace};
+        use engine_assets::{blocks_asset_path, load_block_registry, textures_asset_path};
+
+        let client = concat!(env!("CARGO_MANIFEST_DIR"), "/../../client");
+        let registry = load_block_registry(&blocks_asset_path(client));
+        let materials = pack_block_materials(&textures_asset_path(client), &registry).expect("pack");
+        let grass = registry.id_by_name("grass").expect("grass");
+        let rect = materials
+            .tables()
+            .default_faces
+            .get(grass, CubeFace::Front)
+            .expect("grass side")
+            .atlas_rect;
+
+        for face in [
+            CubeFace::Right,
+            CubeFace::Left,
+            CubeFace::Front,
+            CubeFace::Back,
+        ] {
+            let normal = match face {
+                CubeFace::Right => [1.0, 0.0, 0.0],
+                CubeFace::Left => [-1.0, 0.0, 0.0],
+                CubeFace::Front => [0.0, 1.0, 0.0],
+                CubeFace::Back => [0.0, -1.0, 0.0],
+                _ => unreachable!(),
+            };
+            let corners = face_corners(glam::Vec3::ZERO, normal);
+            let uvs = face_uvs(face, rect);
+            assert!(
+                side_face_grass_fringe_on_top_z(corners, uvs),
+                "grass fringe should map to +Z on {face:?}"
+            );
+        }
+    }
+
+    #[test]
     fn grass_side_faces_carry_biome_tint_index() {
         let (mut world, registry, materials, biome) = grass_fixtures();
         let grass = registry.id_by_name("grass").expect("grass");
@@ -339,5 +476,24 @@ mod tests {
             .filter(|v| v.tint_index > 0)
             .collect();
         assert!(!tinted.is_empty(), "grass sides should carry biome tint index");
+    }
+
+    #[test]
+    fn grass_bottom_face_has_no_biome_tint_index() {
+        let (mut world, registry, materials, biome) = grass_fixtures();
+        let grass = registry.id_by_name("grass").expect("grass");
+        world.set_block(BlockPos::new(0, 0, 0), grass);
+        let mesh = mesh_chunk(&world, &registry, &materials, &biome, IVec3::ZERO, false);
+        let bottom: Vec<_> = mesh
+            .opaque
+            .vertices
+            .iter()
+            .filter(|v| v.normal[2] < -0.5)
+            .collect();
+        assert!(!bottom.is_empty(), "grass block should emit a bottom face");
+        assert!(
+            bottom.iter().all(|v| v.tint_index == 0),
+            "grass bottom should not carry biome tint"
+        );
     }
 }
