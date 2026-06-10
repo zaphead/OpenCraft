@@ -4,12 +4,13 @@ use glam::Vec3;
 use crate::axes::PLAYER_HALF_EXTENTS;
 use crate::components::{
     Collider, GroundContact, NetPlayerId, Player, Transform, Velocity, WorldInitialized,
+    WorldSeed,
 };
 use crate::input::LocalPlayerId;
 use crate::mode::NetworkClient;
 use crate::debug_world::ActiveDebugWorld;
 use crate::play_mode::ActivePlayMode;
-use crate::systems::terrain::player_spawn_center_z_at;
+use crate::systems::terrain::{player_spawn_center_z_at, PLAYER_SPAWN_PITCH};
 
 pub fn spawn_local_player_system(ctx: &mut SystemContext<'_>) {
     if ctx.resources.get::<NetworkClient>().is_some() {
@@ -77,6 +78,11 @@ pub fn spawn_net_player(
             .get::<ActiveDebugWorld>()
             .map(|active| active.0)
             .unwrap_or_default();
+        let seed = ctx
+            .resources
+            .get::<WorldSeed>()
+            .map(|seed| seed.0)
+            .unwrap_or(0);
         let offset = (player_id as f32 * 4.0) % 32.0;
         let column_x = offset.floor() as i32;
         let column_y = 0;
@@ -84,10 +90,10 @@ pub fn spawn_net_player(
             Vec3::new(
                 offset + 0.5,
                 0.5,
-                player_spawn_center_z_at(column_x, column_y, world),
+                player_spawn_center_z_at(column_x, column_y, world, seed),
             ),
             0.0,
-            -0.2,
+            PLAYER_SPAWN_PITCH,
         )
     });
     ctx.world.spawn((

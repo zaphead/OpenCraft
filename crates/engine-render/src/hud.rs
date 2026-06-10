@@ -7,7 +7,7 @@ struct HudVertex {
     color: [f32; 4],
 }
 
-const MAX_HUD_LINES: usize = 14;
+const MAX_HUD_LINES: usize = 18;
 const MAX_HUD_CHARS_PER_LINE: usize = 24;
 const MAX_HUD_VERTICES: usize = MAX_HUD_LINES * MAX_HUD_CHARS_PER_LINE * 5 * 7 * 6 + 6;
 const HUD_VERTEX_BUFFER_SIZE: u64 =
@@ -15,11 +15,15 @@ const HUD_VERTEX_BUFFER_SIZE: u64 =
 
 const BG_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.72];
 const TEXT_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.95];
+const CROSSHAIR_OUTLINE: [f32; 4] = [0.0, 0.0, 0.0, 0.82];
+const CROSSHAIR_CORE: [f32; 4] = [1.0, 1.0, 1.0, 0.92];
 
 pub struct HudPipeline {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     vertex_count: u32,
+    crosshair_vertices: Vec<HudVertex>,
+    crosshair_size: (u32, u32),
 }
 
 impl HudPipeline {
@@ -90,11 +94,19 @@ impl HudPipeline {
             pipeline,
             vertex_buffer,
             vertex_count: 0,
+            crosshair_vertices: Vec::new(),
+            crosshair_size: (0, 0),
         }
     }
 
     pub fn set_text(&mut self, queue: &wgpu::Queue, text: &str, width: u32, height: u32) {
+        if self.crosshair_size != (width, height) {
+            self.crosshair_vertices.clear();
+            append_crosshair(&mut self.crosshair_vertices, width, height);
+            self.crosshair_size = (width, height);
+        }
         let mut vertices = build_hud_vertices(text, width, height);
+        vertices.extend_from_slice(&self.crosshair_vertices);
         vertices.truncate(MAX_HUD_VERTICES);
         self.vertex_count = vertices.len() as u32;
         if !vertices.is_empty() {
@@ -199,6 +211,109 @@ fn push_quad(
     vertices.push(vtx(x1, y0));
     vertices.push(vtx(x1, y1));
     vertices.push(vtx(x0, y1));
+}
+
+fn append_crosshair(vertices: &mut Vec<HudVertex>, width: u32, height: u32) {
+    let cx = width.max(1) as f32 * 0.5;
+    let cy = height.max(1) as f32 * 0.5;
+    const ARM: f32 = 11.0;
+    const GAP: f32 = 3.0;
+    const CORE: f32 = 1.25;
+    const OUTLINE: f32 = 2.75;
+
+    push_crosshair_bar(
+        vertices,
+        width,
+        height,
+        cx - ARM - 1.0,
+        cy - OUTLINE,
+        cx - GAP + 1.0,
+        cy + OUTLINE,
+        CROSSHAIR_OUTLINE,
+    );
+    push_crosshair_bar(
+        vertices,
+        width,
+        height,
+        cx + GAP - 1.0,
+        cy - OUTLINE,
+        cx + ARM + 1.0,
+        cy + OUTLINE,
+        CROSSHAIR_OUTLINE,
+    );
+    push_crosshair_bar(
+        vertices,
+        width,
+        height,
+        cx - OUTLINE,
+        cy - ARM - 1.0,
+        cx + OUTLINE,
+        cy - GAP + 1.0,
+        CROSSHAIR_OUTLINE,
+    );
+    push_crosshair_bar(
+        vertices,
+        width,
+        height,
+        cx - OUTLINE,
+        cy + GAP - 1.0,
+        cx + OUTLINE,
+        cy + ARM + 1.0,
+        CROSSHAIR_OUTLINE,
+    );
+    push_crosshair_bar(
+        vertices,
+        width,
+        height,
+        cx - ARM,
+        cy - CORE,
+        cx - GAP,
+        cy + CORE,
+        CROSSHAIR_CORE,
+    );
+    push_crosshair_bar(
+        vertices,
+        width,
+        height,
+        cx + GAP,
+        cy - CORE,
+        cx + ARM,
+        cy + CORE,
+        CROSSHAIR_CORE,
+    );
+    push_crosshair_bar(
+        vertices,
+        width,
+        height,
+        cx - CORE,
+        cy - ARM,
+        cx + CORE,
+        cy - GAP,
+        CROSSHAIR_CORE,
+    );
+    push_crosshair_bar(
+        vertices,
+        width,
+        height,
+        cx - CORE,
+        cy + GAP,
+        cx + CORE,
+        cy + ARM,
+        CROSSHAIR_CORE,
+    );
+}
+
+fn push_crosshair_bar(
+    vertices: &mut Vec<HudVertex>,
+    width: u32,
+    height: u32,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    color: [f32; 4],
+) {
+    push_quad(vertices, x0, y0, x1, y1, width, height, color);
 }
 
 fn glyph_rows(ch: char) -> Option<[u8; 7]> {

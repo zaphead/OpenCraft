@@ -9,9 +9,10 @@ use rand::Rng;
 
 use crate::components::{
     Chicken, Collider, Mountable, Renderable, Rider, Transform, Velocity, WorldInitialized,
+    WorldSeed,
 };
 use crate::debug_world::DebugWorldKind;
-use crate::systems::terrain::{player_spawn_center_z, WORLD_RADIUS};
+use crate::systems::terrain::{player_ground_center_z_at, WORLD_RADIUS};
 
 const CHICKEN_COUNT: i32 = 12;
 
@@ -29,11 +30,16 @@ pub fn chicken_spawn_system(ctx: &mut SystemContext<'_>) {
         return;
     }
 
+    let seed = ctx
+        .resources
+        .get::<WorldSeed>()
+        .map(|seed| seed.0)
+        .unwrap_or(0);
     let mut rng = rand::thread_rng();
     for _ in 0..CHICKEN_COUNT {
         let x = rng.gen_range((-WORLD_RADIUS + 8)..(WORLD_RADIUS - 8));
         let y = rng.gen_range((-WORLD_RADIUS + 8)..(WORLD_RADIUS - 8));
-        let center_z = player_spawn_center_z(DebugWorldKind::RollingHills) - 0.45;
+        let center_z = player_ground_center_z_at(x, y, DebugWorldKind::Flat, seed) - 0.45;
 
         ctx.world.spawn((
             Chicken {

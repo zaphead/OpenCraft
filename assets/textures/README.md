@@ -24,8 +24,10 @@ Import from a Minecraft resource pack (curated manifest):
 
 ```bash
 cargo run -p engine-assets --bin import-texture-pack -- \
-  --pack /path/to/pack.zip
+  --pack source-packs/whimscape-26.1-r2/whimscape-26.1-r2.zip
 ```
+
+Source packs live in [`source-packs/`](../../source-packs/README.md) (not loaded at runtime).
 
 See [`import/manifest.toml`](../import/manifest.toml) for block → model mappings.
 

@@ -376,6 +376,7 @@ Full client–server model per design doc §7:
 
 - `cargo run -p engine-assets --bin import-texture-pack` reads zip/dir packs via manifest.
 - Whimscape import: grass (overlay + biome tint), dirt, stone, birch leaves (cutout + foliage colormap).
+- Upstream pack archived at `source-packs/whimscape-26.1-r2/` (zip committed; `extracted/` gitignored).
 
 ### 2026-06-10 — Folder-based block textures + UV layouts
 

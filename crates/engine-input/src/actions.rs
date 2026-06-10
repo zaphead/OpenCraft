@@ -9,11 +9,10 @@ pub struct InputState {
     pub sprint: bool,
     pub jump: bool,
     pub interact: bool,
-    pub break_block: bool,
-    pub place_block: bool,
+    pub break_held: bool,
+    pub place_held: bool,
     pub cursor_locked: bool,
     pub toggle_play_mode: bool,
-    pub cycle_debug_world: bool,
 }
 
 impl InputState {
@@ -29,8 +28,8 @@ impl InputState {
             Action::MoveRight => self.move_axis.x > 0.0,
             Action::Jump => self.jump,
             Action::Interact => self.interact,
-            Action::BreakBlock => self.break_block,
-            Action::PlaceBlock => self.place_block,
+            Action::BreakBlock => self.break_held,
+            Action::PlaceBlock => self.place_held,
         }
     }
 
@@ -38,10 +37,7 @@ impl InputState {
         self.look_delta = Vec2::ZERO;
         self.jump = false;
         self.interact = false;
-        self.break_block = false;
-        self.place_block = false;
         self.toggle_play_mode = false;
-        self.cycle_debug_world = false;
     }
 }
 

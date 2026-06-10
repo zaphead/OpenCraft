@@ -96,7 +96,7 @@ fn input_to_packet(input: &engine_input::InputState) -> PlayerInput {
         look_delta: input.look_delta,
         jump: input.jump,
         interact: input.interact,
-        break_block: input.break_block,
-        place_block: input.place_block,
+        break_block: input.break_held,
+        place_block: input.place_held,
     }
 }

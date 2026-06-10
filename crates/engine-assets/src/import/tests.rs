@@ -1,20 +1,25 @@
 #[cfg(test)]
 mod whimscape {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use crate::import::{import_texture_pack, load_manifest};
     use crate::material::pack_block_materials;
     use crate::server::{assets_dir, blocks_asset_path};
     use crate::{load_block_registry, textures_asset_path};
 
-    const WHIMSCAPE: &str = "/Users/spencerterry/Downloads/Whimscape 26.1 r2.zip";
+    fn whimscape_zip() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../source-packs/whimscape-26.1-r2/whimscape-26.1-r2.zip")
+    }
 
     #[test]
-    #[ignore = "requires local Whimscape pack zip"]
     fn imports_whimscape_blocks_into_temp_assets() {
-        if !Path::new(WHIMSCAPE).is_file() {
-            return;
-        }
+        let whimscape = whimscape_zip();
+        assert!(
+            whimscape.is_file(),
+            "missing Whimscape source pack at {}",
+            whimscape.display()
+        );
 
         let temp = tempfile::tempdir().expect("tempdir");
         let assets = temp.path().join("assets");
@@ -34,7 +39,7 @@ mod whimscape {
             load_manifest(&assets_dir(env!("CARGO_MANIFEST_DIR")).join("import/manifest.toml"))
                 .expect("manifest");
 
-        let report = import_texture_pack(Path::new(WHIMSCAPE), &manifest, &assets)
+        let report = import_texture_pack(&whimscape, &manifest, &assets)
             .expect("import");
         assert_eq!(report.blocks_imported.len(), 4);
 

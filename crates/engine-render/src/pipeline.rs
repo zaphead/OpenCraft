@@ -3,6 +3,7 @@ use engine_assets::{TextureAtlas, UvRect};
 use wgpu::util::DeviceExt;
 
 use crate::mesh::MeshVertex;
+use crate::outline::OutlinePipeline;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -21,6 +22,7 @@ pub struct RenderPipelines {
     pub depth: wgpu::RenderPipeline,
     pub opaque: wgpu::RenderPipeline,
     pub cutout: wgpu::RenderPipeline,
+    pub outline: OutlinePipeline,
     pub scene_bind_group: wgpu::BindGroup,
     pub atlas_bind_group: wgpu::BindGroup,
     scene_buffer: wgpu::Buffer,
@@ -250,10 +252,13 @@ impl RenderPipelines {
 
         let _ = (colormap_min, colormap_max);
 
+        let outline = OutlinePipeline::new(device, surface_format, &scene_bind_group_layout);
+
         Self {
             depth,
             opaque,
             cutout,
+            outline,
             scene_bind_group,
             atlas_bind_group,
             scene_buffer,

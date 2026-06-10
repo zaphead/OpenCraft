@@ -1,6 +1,7 @@
 use engine_core::SystemContext;
 use game::{
-    local_player_entity, player_spawn_center_z_at, spawn_net_player, ActiveDebugWorld,
+    local_player_entity, player_spawn_center_z_at, spawn_net_player, ActiveDebugWorld, WorldSeed,
+    PLAYER_SPAWN_PITCH,
     ActivePlayMode, LocalPlayerId, NetworkClient, PlayMode, Transform, Velocity,
     PLAYER_EYE_OFFSET_Z,
 };
@@ -61,43 +62,29 @@ fn enter_spectator(ctx: &mut SystemContext<'_>) {
 }
 
 fn enter_survival(ctx: &mut SystemContext<'_>) {
-    let (spawn_position, yaw, pitch, initial_velocity) = ctx
+    let world = ctx
+        .resources
+        .get::<ActiveDebugWorld>()
+        .map(|active| active.0)
+        .unwrap_or_default();
+    let seed = ctx
+        .resources
+        .get::<WorldSeed>()
+        .map(|seed| seed.0)
+        .unwrap_or(0);
+    let yaw = ctx
         .resources
         .get::<SpectatorCamera>()
-        .map(|camera| {
-            (
-                camera.position - Vec3::new(0.0, 0.0, PLAYER_EYE_OFFSET_Z),
-                camera.yaw,
-                camera.pitch,
-                camera.velocity,
-            )
-        })
-        .unwrap_or_else(|| {
-            let world = ctx
-                .resources
-                .get::<ActiveDebugWorld>()
-                .map(|active| active.0)
-                .unwrap_or_default();
-            (
-                Vec3::new(0.5, 0.5, player_spawn_center_z_at(0, 0, world)),
-                0.0,
-                -0.2,
-                Vec3::ZERO,
-            )
-        });
+        .map(|camera| camera.yaw)
+        .unwrap_or(0.0);
+    let spawn_position = Vec3::new(0.5, 0.5, player_spawn_center_z_at(0, 0, world, seed));
 
     if let Some(local) = ctx.resources.get_mut::<LocalPlayerId>() {
         local.id = Some(0);
         local.spawned = false;
     }
 
-    spawn_net_player(ctx, 0, Some((spawn_position, yaw, pitch)));
-
-    if let Some(entity) = local_player_entity(ctx) {
-        if let Ok(mut velocity) = ctx.world.get::<&mut Velocity>(entity) {
-            velocity.0 = initial_velocity;
-        }
-    }
+    spawn_net_player(ctx, 0, Some((spawn_position, yaw, PLAYER_SPAWN_PITCH)));
 
     if let Some(local) = ctx.resources.get_mut::<LocalPlayerId>() {
         local.id = Some(0);

@@ -15,6 +15,7 @@ pub struct RenderScene {
     pub cutout: SolidMesh,
     pub animation_tick: u32,
     pub entity_meshes: Vec<(glam::Vec3, SolidMesh)>,
+    pub target_block: Option<BlockPos>,
 }
 
 pub const MAX_CHUNK_REBUILDS_PER_FRAME: usize = 8;
@@ -46,9 +47,16 @@ impl RebuildBudget {
 pub struct ChunkMeshCache {
     meshes: HashMap<IVec3, MeshBuckets>,
     dirty: HashMap<IVec3, ()>,
+    generation: u64,
+    merged: MeshBuckets,
+    merged_generation: u64,
 }
 
 impl ChunkMeshCache {
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
     pub fn mark_dirty(&mut self, chunk: IVec3) {
         self.dirty.insert(chunk, ());
     }
@@ -111,31 +119,44 @@ impl ChunkMeshCache {
             })
             .collect();
 
+        let mut changed = false;
         for (chunk, mesh) in rebuilt {
             self.dirty.remove(&chunk);
             if mesh.is_empty() {
-                self.meshes.remove(&chunk);
+                changed |= self.meshes.remove(&chunk).is_some();
             } else {
                 self.meshes.insert(chunk, mesh);
+                changed = true;
             }
         }
 
         if budget.max_distance_sq < f32::MAX {
+            let before = self.meshes.len();
             self.meshes.retain(|chunk, _| {
                 chunk_center(*chunk).distance_squared(camera_position) <= budget.max_distance_sq
             });
+            changed |= self.meshes.len() != before;
+        }
+
+        if changed {
+            self.generation += 1;
         }
 
         count
     }
 
-    pub fn merged_buckets(&self) -> MeshBuckets {
-        let mut merged = MeshBuckets::default();
-        for buckets in self.meshes.values() {
-            merged.push(DrawCategory::Opaque, &buckets.opaque);
-            merged.push(DrawCategory::Cutout, &buckets.cutout);
+    pub fn merged_buckets(&mut self) -> &MeshBuckets {
+        if self.merged_generation != self.generation {
+            self.merged = MeshBuckets::default();
+            for buckets in self.meshes.values() {
+                self.merged
+                    .push(DrawCategory::Opaque, &buckets.opaque);
+                self.merged
+                    .push(DrawCategory::Cutout, &buckets.cutout);
+            }
+            self.merged_generation = self.generation;
         }
-        merged
+        &self.merged
     }
 }
 
@@ -232,6 +253,7 @@ pub fn extract_render_scene(
     cutout: SolidMesh,
     animation_tick: u32,
     entity_meshes: Vec<(glam::Vec3, SolidMesh)>,
+    target_block: Option<BlockPos>,
 ) -> RenderScene {
     RenderScene {
         camera,
@@ -239,6 +261,7 @@ pub fn extract_render_scene(
         cutout,
         animation_tick,
         entity_meshes,
+        target_block,
     }
 }
 

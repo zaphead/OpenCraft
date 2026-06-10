@@ -1,37 +1,58 @@
 use engine_assets::BlockRegistry;
-use engine_core::SystemContext;
-use engine_world::{BlockPos, SparseVoxelOctree, WorldMutationQueue};
+use engine_core::{SystemContext, Time};
+use engine_world::{BlockPos, WorldMutationQueue};
 use glam::Vec3;
 use hecs::Entity;
 
-use crate::axes::view_forward;
-use crate::components::{Mounted, NetPlayerId, Player, Transform};
+use crate::components::{Collider, Mounted, NetPlayerId, Player, Transform};
 use crate::events::BlockChangeIntent;
 use crate::input::resolve_input;
+use crate::play_mode::{ActivePlayMode, PlayMode};
+use crate::voxel_raycast::{
+    block_overlaps_player, player_interaction_ray, raycast_voxel, BLOCK_REACH,
+};
 
-const REACH: f32 = 6.0;
+const BLOCK_INTERACTION_INTERVAL: u64 = 4;
 
 pub fn block_interaction_system(ctx: &mut SystemContext<'_>) {
-    let Some(registry) = ctx.resources.get::<BlockRegistry>() else {
+    if ctx
+        .resources
+        .get::<ActivePlayMode>()
+        .is_some_and(|mode| mode.0 != PlayMode::Survival)
+    {
+        return;
+    }
+
+    let tick = ctx.resources.get::<Time>().map(|time| time.tick).unwrap_or(0);
+    if tick % BLOCK_INTERACTION_INTERVAL != 0 {
+        return;
+    }
+
+    let Some(registry) = ctx.resources.get::<BlockRegistry>().cloned() else {
         return;
     };
     let Some(air) = registry.id_by_name("air") else {
         return;
     };
-    let Some(stone) = registry.id_by_name("stone") else {
+    let Some(dirt) = registry.id_by_name("dirt") else {
         return;
     };
 
-    let players: Vec<(Entity, Transform, Option<u32>)> = ctx
+    let players: Vec<(Entity, Transform, Option<u32>, Vec3)> = ctx
         .world
-        .query::<(&Player, &Transform, Option<&NetPlayerId>)>()
+        .query::<(&Player, &Transform, Option<&NetPlayerId>, &Collider)>()
         .iter()
-        .map(|(entity, (_, transform, net_id))| {
-            (entity, *transform, net_id.map(|id| id.0))
+        .map(|(entity, (_, transform, net_id, collider))| {
+            (
+                entity,
+                *transform,
+                net_id.map(|id| id.0),
+                collider.half_extents,
+            )
         })
         .collect();
 
-    for (player_entity, transform, net_id) in players {
+    for (player_entity, transform, net_id, half_extents) in players {
         if ctx.world.get::<&Mounted>(player_entity).is_ok() {
             continue;
         }
@@ -43,10 +64,11 @@ pub fn block_interaction_system(ctx: &mut SystemContext<'_>) {
             continue;
         }
 
-        let origin = transform.position + Vec3::new(0.0, 0.0, 1.5);
-        let direction = view_forward(transform.yaw, transform.pitch);
-
-        let Some(hit) = raycast_voxel(ctx, origin, direction, REACH) else {
+        let (origin, direction) = player_interaction_ray(&transform);
+        let Some(world) = ctx.resources.get::<engine_world::SparseVoxelOctree>() else {
+            return;
+        };
+        let Some(hit) = raycast_voxel(world, &registry, origin, direction, BLOCK_REACH) else {
             continue;
         };
 
@@ -55,7 +77,8 @@ pub fn block_interaction_system(ctx: &mut SystemContext<'_>) {
             hit.block_pos.0.y + hit.normal.y,
             hit.block_pos.0.z + hit.normal.z,
         );
-        let can_place = input.place_block && !occupies_player(transform.position, place_pos);
+        let can_place = input.place_block
+            && !block_overlaps_player(transform.position, half_extents, place_pos);
 
         let Some(queue) = ctx.resources.get_mut::<WorldMutationQueue>() else {
             return;
@@ -68,79 +91,11 @@ pub fn block_interaction_system(ctx: &mut SystemContext<'_>) {
                 new_block: air,
             });
         } else if can_place {
-            queue.set_block(place_pos, stone);
+            queue.set_block(place_pos, dirt);
             ctx.events.send(BlockChangeIntent {
                 position: place_pos,
-                new_block: stone,
+                new_block: dirt,
             });
         }
     }
-}
-
-struct RayHit {
-    block_pos: BlockPos,
-    normal: glam::IVec3,
-}
-
-fn raycast_voxel(
-    ctx: &SystemContext<'_>,
-    origin: Vec3,
-    direction: Vec3,
-    max_distance: f32,
-) -> Option<RayHit> {
-    let world = ctx.resources.get::<SparseVoxelOctree>()?;
-    let registry = ctx.resources.get::<BlockRegistry>()?;
-
-    let mut t = 0.0;
-    let mut current = origin.floor().as_ivec3();
-    let step = direction.signum().as_ivec3();
-    let mut t_max = Vec3::ZERO;
-    let mut t_delta = Vec3::splat(f32::INFINITY);
-
-    for axis in 0..3 {
-        if direction[axis] != 0.0 {
-            let boundary = if step[axis] > 0 {
-                current[axis] as f32 + 1.0
-            } else {
-                current[axis] as f32
-            };
-            t_max[axis] = (boundary - origin[axis]) / direction[axis];
-            t_delta[axis] = (step[axis] as f32 / direction[axis]).abs();
-        }
-    }
-
-    let mut last_step = glam::IVec3::ZERO;
-
-    while t <= max_distance {
-        let pos = BlockPos::new(current.x, current.y, current.z);
-        if registry.is_solid(world.get_block(pos)) {
-            return Some(RayHit {
-                block_pos: pos,
-                normal: -last_step,
-            });
-        }
-
-        if t_max.x < t_max.y && t_max.x < t_max.z {
-            t = t_max.x;
-            t_max.x += t_delta.x;
-            last_step = glam::IVec3::X * step.x;
-            current.x += step.x;
-        } else if t_max.y < t_max.z {
-            t = t_max.y;
-            t_max.y += t_delta.y;
-            last_step = glam::IVec3::Y * step.y;
-            current.y += step.y;
-        } else {
-            t = t_max.z;
-            t_max.z += t_delta.z;
-            last_step = glam::IVec3::Z * step.z;
-            current.z += step.z;
-        }
-    }
-
-    None
-}
-
-fn occupies_player(player_position: Vec3, position: BlockPos) -> bool {
-    player_position.floor().as_ivec3() == position.0
 }

@@ -1,25 +1,17 @@
 use engine_core::SystemContext;
 use game::{
-    player_spawn_center_z_at, resolve_input, accelerate_toward, apply_ice_drag, max_speed,
+    player_ground_center_z_at, resolve_input, accelerate_toward, apply_ice_drag, max_speed,
     wish_direction_fly, ActivePlayMode, DebugWorldKind, LocalPlayerId, LocomotionConfig,
     MOUSE_SENSITIVITY, PlayMode,
 };
 use glam::Vec3;
 
-pub fn reset_spectator_for_world(world: DebugWorldKind) -> SpectatorCamera {
-    match world {
-        DebugWorldKind::ThreeBlocks => SpectatorCamera {
-            position: Vec3::new(game::DEBUG_BLOCK_SPACING as f32 + 0.5, -6.0, 5.5),
-            velocity: Vec3::ZERO,
-            yaw: 0.0,
-            pitch: -0.35,
-        },
-        DebugWorldKind::RollingHills => SpectatorCamera {
-            position: Vec3::new(0.5, 0.5, player_spawn_center_z_at(0, 0, world) + 2.0),
-            velocity: Vec3::ZERO,
-            yaw: 0.0,
-            pitch: -0.25,
-        },
+pub fn reset_spectator_for_world(world: DebugWorldKind, seed: u32) -> SpectatorCamera {
+    SpectatorCamera {
+        position: Vec3::new(0.5, 0.5, player_ground_center_z_at(0, 0, world, seed) + 2.0),
+        velocity: Vec3::ZERO,
+        yaw: 0.0,
+        pitch: -0.25,
     }
 }
 
@@ -33,7 +25,7 @@ pub struct SpectatorCamera {
 
 impl Default for SpectatorCamera {
     fn default() -> Self {
-        reset_spectator_for_world(DebugWorldKind::RollingHills)
+        reset_spectator_for_world(DebugWorldKind::Flat, 0)
     }
 }
 

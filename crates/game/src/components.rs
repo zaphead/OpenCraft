@@ -60,3 +60,12 @@ pub struct WorldInitialized(pub bool);
 pub struct TerrainGeneration {
     pub complete: bool,
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct WorldSeed(pub u32);
+
+impl WorldSeed {
+    pub fn random() -> Self {
+        Self(rand::random())
+    }
+}

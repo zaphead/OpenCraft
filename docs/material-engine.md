@@ -73,9 +73,11 @@ Curated import from a Minecraft resource pack (zip or extracted folder) into eng
 
 ```bash
 cargo run -p engine-assets --bin import-texture-pack -- \
-  --pack /path/to/pack.zip \
+  --pack source-packs/whimscape-26.1-r2/whimscape-26.1-r2.zip \
   --assets /path/to/assets
 ```
+
+Archived upstream packs: [`source-packs/`](../source-packs/README.md).
 
 Manifest: [`assets/import/manifest.toml`](../assets/import/manifest.toml) maps engine block names → MC model ids (e.g. `grass_block_alt_1`). The importer:
 

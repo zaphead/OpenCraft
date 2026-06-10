@@ -22,6 +22,7 @@ pub struct Renderer {
     colormap_rect: Option<UvRect>,
     opaque_meshes: Vec<GpuMesh>,
     cutout_meshes: Vec<GpuMesh>,
+    uploaded_mesh_generation: u64,
     hud: HudPipeline,
 }
 
@@ -100,6 +101,7 @@ impl Renderer {
             colormap_rect,
             opaque_meshes: Vec::new(),
             cutout_meshes: Vec::new(),
+            uploaded_mesh_generation: u64::MAX,
             hud,
         }
     }
@@ -121,7 +123,16 @@ impl Renderer {
         self.config.width as f32 / self.config.height as f32
     }
 
-    pub fn upload_meshes(&mut self, opaque: &SolidMesh, cutout: &SolidMesh) {
+    pub fn sync_meshes(
+        &mut self,
+        mesh_generation: u64,
+        opaque: &SolidMesh,
+        cutout: &SolidMesh,
+    ) {
+        if self.uploaded_mesh_generation == mesh_generation {
+            return;
+        }
+        self.uploaded_mesh_generation = mesh_generation;
         self.opaque_meshes = if opaque.vertices.is_empty() {
             Vec::new()
         } else {
@@ -135,13 +146,12 @@ impl Renderer {
     }
 
     pub fn render(&mut self, scene: &RenderScene, hud_label: Option<&str>) -> Result<(), SurfaceError> {
-        if let Some(label) = hud_label {
-            self.hud
-                .set_text(&self.queue, label, self.config.width, self.config.height);
-        } else {
-            self.hud
-                .set_text(&self.queue, "", self.config.width, self.config.height);
-        }
+        self.hud.set_text(
+            &self.queue,
+            hud_label.unwrap_or(""),
+            self.config.width,
+            self.config.height,
+        );
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -243,7 +253,40 @@ impl Renderer {
             draw_meshes(&mut pass, &self.cutout_meshes);
         }
 
-        if hud_label.is_some() {
+        self.pipelines
+            .outline
+            .sync_block(&self.queue, scene.target_block);
+        if scene.target_block.is_some() {
+            let outline_count = crate::outline::OutlinePipeline::index_count_for_block();
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("outline_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            self.pipelines.outline.draw(
+                &mut pass,
+                &self.pipelines.scene_bind_group,
+                outline_count,
+            );
+        }
+
+        {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("hud_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {

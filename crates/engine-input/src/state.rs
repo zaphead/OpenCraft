@@ -6,14 +6,15 @@ use crate::actions::InputState;
 pub fn apply_winit_event(input: &mut InputState, event: &WindowEvent) {
     match event {
         WindowEvent::KeyboardInput { event, .. } => apply_keyboard(input, event),
-        WindowEvent::MouseInput { state, button, .. } => {
-            let pressed = *state == ElementState::Pressed;
-            match button {
-                MouseButton::Left => input.break_block = pressed,
-                MouseButton::Right => input.place_block = pressed,
-                _ => {}
+        WindowEvent::MouseInput { state, button, .. } => match button {
+            MouseButton::Left => {
+                input.break_held = *state == ElementState::Pressed;
             }
-        }
+            MouseButton::Right => {
+                input.place_held = *state == ElementState::Pressed;
+            }
+            _ => {}
+        },
         _ => {}
     }
 }
@@ -48,11 +49,6 @@ fn apply_keyboard(input: &mut InputState, event: &KeyEvent) {
         KeyCode::KeyM => {
             if pressed {
                 input.toggle_play_mode = true;
-            }
-        }
-        KeyCode::Tab => {
-            if pressed {
-                input.cycle_debug_world = true;
             }
         }
         _ => {}

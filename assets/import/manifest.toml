@@ -1,5 +1,6 @@
 # Curated Minecraft → engine block mapping.
-# Run: cargo run -p engine-assets --bin import-texture-pack -- --pack /path/to/pack.zip
+# Run: cargo run -p engine-assets --bin import-texture-pack -- \
+#   --pack source-packs/whimscape-26.1-r2/whimscape-26.1-r2.zip
 
 [colormaps]
 grass = "colormap/grass.png"

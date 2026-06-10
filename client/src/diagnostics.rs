@@ -40,7 +40,7 @@ impl ClientDiagnostics {
                 registry.is_solid(world.get_block(BlockPos::new(
                     0,
                     0,
-                    terrain_surface_z(0, 0, DebugWorldKind::ThreeBlocks),
+                    terrain_surface_z(0, 0, DebugWorldKind::Flat, 0),
                 )))
             }
             _ => false,

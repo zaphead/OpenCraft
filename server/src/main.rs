@@ -8,7 +8,8 @@ use engine_core::{App, Time};
 use engine_net::NetServer;
 use engine_world::{SparseVoxelOctree, WorldMutationQueue};
 use game::{
-    register_server_systems, AuthoritativeServer, PlayerInputs, TerrainGeneration, WorldInitialized,
+    register_server_systems, AuthoritativeServer, PlayerInputs, TerrainGeneration,
+    WorldInitialized, WorldSeed,
 };
 use systems::{register_server_schedule, ServerNet};
 
@@ -25,6 +26,7 @@ fn main() {
     app.insert_resource(WorldMutationQueue::default());
     app.insert_resource(WorldInitialized::default());
     app.insert_resource(TerrainGeneration::default());
+    app.insert_resource(WorldSeed::random());
 
     let blocks_path = blocks_asset_path(env!("CARGO_MANIFEST_DIR"));
     let registry = load_block_registry(&blocks_path);

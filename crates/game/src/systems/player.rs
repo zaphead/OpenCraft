@@ -9,14 +9,13 @@ use crate::axes::{grounded_probe_offset, UP};
 use crate::components::{Collider, GroundContact, Mounted, NetPlayerId, Player, Transform, Velocity};
 use crate::input::resolve_input;
 use crate::movement::{
-    accelerate_horizontal, apply_horizontal_drag, wish_direction_horizontal, AIR_ACCEL,
-    AIR_CONTROL_SPEED, AIR_DRAG, GROUND_ACCEL, LocomotionConfig, MOUSE_SENSITIVITY,
+    accelerate_horizontal, apply_horizontal_drag, wish_direction_horizontal, AIR_ACCEL_FACTOR,
+    AIR_DRAG, AIR_SPEED_FACTOR, GROUND_ACCEL, LocomotionConfig, MOUSE_SENSITIVITY,
 };
 use crate::play_mode::{ActivePlayMode, PlayMode};
 use crate::systems::physics::collision::collides_aabb;
 
 const GRAVITY: f32 = 32.0;
-/// ~1.45 block apex at GRAVITY=32.
 const JUMP_SPEED: f32 = 9.6;
 
 fn survival_active(ctx: &SystemContext<'_>) -> bool {
@@ -105,14 +104,20 @@ pub fn player_movement_system(ctx: &mut SystemContext<'_>) {
                 horiz = accelerate_horizontal(horiz, target, GROUND_ACCEL * delta);
             }
         } else {
-            horiz = apply_horizontal_drag(horiz, AIR_DRAG, delta);
+            let air_speed_cap = if input.sprint {
+                crate::movement::max_speed(config, true)
+            } else {
+                crate::movement::max_speed(config, false) * AIR_SPEED_FACTOR
+            };
+            let air_accel_step = GROUND_ACCEL * AIR_ACCEL_FACTOR * delta;
             if wish.length_squared() > 0.0 {
                 let wish_h = Vec2::new(wish.x, wish.y);
                 let along = horiz.dot(wish_h);
-                if along < AIR_CONTROL_SPEED {
-                    let step = (AIR_ACCEL * delta).min(AIR_CONTROL_SPEED - along);
-                    horiz += wish_h * step;
+                if along < air_speed_cap {
+                    horiz += wish_h * air_accel_step.min(air_speed_cap - along);
                 }
+            } else {
+                horiz = apply_horizontal_drag(horiz, AIR_DRAG, delta);
             }
         }
 

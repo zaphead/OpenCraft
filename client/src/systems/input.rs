@@ -24,8 +24,8 @@ pub fn sync_local_input_system(ctx: &mut SystemContext<'_>) {
         sprint: pending.0.sprint,
         jump: pending.0.jump || (survival && pending.0.ascend),
         interact: pending.0.interact,
-        break_block: pending.0.break_block,
-        place_block: pending.0.place_block,
+        break_block: pending.0.break_held,
+        place_block: pending.0.place_held,
     };
 
     if let Some(inputs) = ctx.resources.get_mut::<PlayerInputs>() {

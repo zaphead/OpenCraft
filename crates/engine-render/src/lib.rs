@@ -5,6 +5,7 @@ mod ctm;
 mod extract;
 mod hud;
 mod mesh;
+mod outline;
 mod pipeline;
 mod renderer;
 mod world_mesh;

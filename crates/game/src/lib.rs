@@ -10,6 +10,7 @@ mod movement;
 mod play_mode;
 mod plugin;
 pub mod systems;
+mod voxel_raycast;
 
 pub use axes::{
     grounded_probe_offset, horizontal_forward, horizontal_right, view_forward,
@@ -33,8 +34,12 @@ pub use plugin::{
     register_server_systems, register_world_systems,
 };
 pub use systems::terrain::{
-    player_spawn_center_z, player_spawn_center_z_at, rolling_hills_max_surface_z,
-    terrain_surface_z, DEBUG_BLOCK_SPACING, DEBUG_BLOCK_Z, GRASS_PLANE_Z, ROLLING_HILLS_RADIUS,
-    WORLD_RADIUS,
+    player_ground_center_z_at, player_spawn_center_z, player_spawn_center_z_at,
+    terrain_surface_z, FLAT_SURFACE_Z, FLAT_WORLD_RADIUS, GRASS_PLANE_Z,
+    PLAYER_SPAWN_AIRBORNE_BLOCKS, PLAYER_SPAWN_PITCH, WORLD_RADIUS,
 };
 pub use systems::spawn_net_player;
+pub use voxel_raycast::{
+    block_overlaps_player, camera_interaction_ray, player_interaction_ray, raycast_voxel,
+    VoxelRayHit, BLOCK_REACH,
+};

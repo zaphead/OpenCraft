@@ -38,6 +38,7 @@ pub fn register_local_client_systems(app: &mut App) {
     register_world_systems(app);
     register_player_spawn_systems(app);
     register_player_systems(app);
+    register_authoritative_block_system(app);
 }
 
 pub fn register_network_client_systems(app: &mut App) {

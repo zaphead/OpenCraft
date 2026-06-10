@@ -1,45 +1,52 @@
 use engine_core::SystemContext;
 use engine_render::{extract_render_scene, Renderer, RenderWorld};
-use game::{ActiveDebugWorld, ActivePlayMode};
+use game::{local_player_entity, ActiveDebugWorld, ActivePlayMode, Velocity};
+use glam::Vec3;
 
 use crate::systems::hud::format_debug_hud;
 
 pub struct ClientRenderer(pub Renderer);
 
 pub fn present_frame_system(ctx: &mut SystemContext<'_>) {
-    let snapshot = ctx.resources.get::<RenderWorld>().and_then(|world| {
-        if world.ready {
-            Some((
-                world.camera,
-                world.opaque.clone(),
-                world.cutout.clone(),
-                world.animation_tick,
-            ))
-        } else {
-            None
-        }
-    });
-    let Some((camera, opaque, cutout, animation_tick)) = snapshot else {
-        return;
-    };
-    if opaque.vertices.is_empty() && cutout.vertices.is_empty() {
-        log::debug!("present skipped: zero meshes in RenderWorld");
-        return;
-    }
-
     let play_mode = ctx.resources.get::<ActivePlayMode>().map(|mode| mode.0);
     let debug_world = ctx.resources.get::<ActiveDebugWorld>().map(|active| active.0);
-    let hud_text = format_debug_hud(&camera, play_mode, debug_world);
-    let hud_buffer = hud_text;
+    let velocity = local_player_entity(ctx)
+        .and_then(|entity| ctx.world.get::<&Velocity>(entity).ok())
+        .map(|velocity| velocity.0)
+        .unwrap_or(Vec3::ZERO);
 
-    let Some(renderer) = ctx.resources.get_mut::<ClientRenderer>() else {
-        log::warn!("present skipped: ClientRenderer missing");
+    let presented = ctx
+        .resources
+        .with_pair::<RenderWorld, ClientRenderer, _>(|world, renderer| {
+            if !world.ready {
+                return false;
+            }
+            if world.opaque.vertices.is_empty() && world.cutout.vertices.is_empty() {
+                log::debug!("present skipped: zero meshes in RenderWorld");
+                return false;
+            }
+
+            let hud_text = format_debug_hud(&world.camera, play_mode, debug_world, velocity);
+            renderer.0.sync_meshes(
+                world.mesh_generation,
+                &world.opaque,
+                &world.cutout,
+            );
+            let scene = extract_render_scene(
+                world.camera,
+                Default::default(),
+                Default::default(),
+                world.animation_tick,
+                Vec::new(),
+                world.target_block,
+            );
+            if let Err(error) = renderer.0.render(&scene, Some(&hud_text)) {
+                log::warn!("render error: {error:?}");
+            }
+            true
+        })
+        .unwrap_or(false);
+    if !presented {
         return;
-    };
-
-    let scene = extract_render_scene(camera, opaque, cutout, animation_tick, Vec::new());
-    renderer.0.upload_meshes(&scene.opaque, &scene.cutout);
-    if let Err(error) = renderer.0.render(&scene, Some(&hud_buffer)) {
-        log::warn!("render error: {error:?}");
     }
 }

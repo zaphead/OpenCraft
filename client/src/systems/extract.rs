@@ -5,8 +5,8 @@ use engine_core::{SystemContext, Time};
 use engine_render::{Camera, RenderExtractState, RenderSurfaceInfo, RenderWorld};
 use engine_world::{BiomeMap, SparseVoxelOctree, VoxelChanged};
 use game::{
-    local_player_entity, ActiveDebugWorld, ActivePlayMode, DebugWorldKind, PlayMode, Transform,
-    WorldInitialized, PLAYER_EYE_OFFSET_Z,
+    local_player_entity, raycast_voxel, ActiveDebugWorld, ActivePlayMode, DebugWorldKind,
+    PlayMode, Transform, WorldInitialized, BLOCK_REACH, PLAYER_EYE_OFFSET_Z,
 };
 
 use crate::mesh_pipeline::{bootstrap_terrain_meshes, rebuild_budget_for_extract, rebuild_chunk_meshes};
@@ -38,7 +38,7 @@ pub fn queue_initial_world_meshes_system(ctx: &mut SystemContext<'_>) {
         .resources
         .get::<ActiveDebugWorld>()
         .map(|active| active.0)
-        .unwrap_or(DebugWorldKind::RollingHills);
+        .unwrap_or(DebugWorldKind::Flat);
     let Some(state) = ctx.resources.get_mut::<RenderExtractState>() else {
         return;
     };
@@ -67,7 +67,13 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
         .get::<BiomeMap>()
         .cloned()
         .unwrap_or_default();
-    let buckets = ctx
+    let mesh_generation = ctx
+        .resources
+        .get::<RenderWorld>()
+        .map(|world| world.mesh_generation)
+        .unwrap_or(0);
+
+    let extract = ctx
         .resources
         .with_triple::<SparseVoxelOctree, BlockRegistry, RenderExtractState, _>(
             |world, registry, state| {
@@ -83,16 +89,38 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
                         budget,
                     );
                 }
-                state.mesh_cache.merged_buckets()
+                let generation = state.mesh_cache.generation();
+                let buckets = state.mesh_cache.merged_buckets();
+                let mesh_update = if generation != mesh_generation {
+                    Some((buckets.opaque.clone(), buckets.cutout.clone()))
+                } else {
+                    None
+                };
+                let target_block = raycast_voxel(
+                    world,
+                    registry,
+                    camera.position,
+                    camera.forward(),
+                    BLOCK_REACH,
+                )
+                .map(|hit| hit.block_pos);
+                (generation, mesh_update, target_block)
             },
-        )
-        .unwrap_or_default();
+        );
+
+    let Some((generation, mesh_update, target_block)) = extract else {
+        return;
+    };
 
     if let Some(render_world) = ctx.resources.get_mut::<RenderWorld>() {
         render_world.camera = camera;
-        render_world.opaque = buckets.opaque;
-        render_world.cutout = buckets.cutout;
+        if let Some((opaque, cutout)) = mesh_update {
+            render_world.opaque = opaque;
+            render_world.cutout = cutout;
+            render_world.mesh_generation = generation;
+        }
         render_world.animation_tick = animation_tick;
+        render_world.target_block = target_block;
         render_world.ready = true;
     }
 }

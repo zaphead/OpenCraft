@@ -8,13 +8,13 @@ use engine_input::InputState;
 use engine_render::{RenderExtractState, RenderSurfaceInfo, RenderWorld};
 use engine_world::{BiomeMap, SparseVoxelOctree, WorldMutationQueue};
 use game::{
-    register_local_client_systems, ActiveDebugWorld, ActivePlayMode, LocalPlayerId, PlayerInputs,
-    TerrainGeneration, WorldInitialized,
+    register_local_client_systems, ActiveDebugWorld, ActivePlayMode, DebugWorldKind, LocalPlayerId,
+    PlayerInputs, TerrainGeneration, WorldInitialized, WorldSeed,
 };
 
 use crate::systems::input::PendingWinitInput;
 use crate::systems::register_client_schedule;
-use crate::systems::spectator::SpectatorCamera;
+use crate::systems::spectator::reset_spectator_for_world;
 
 /// Shared ECS resources for client, tests, and diagnostics (no block registry or textures).
 pub fn bootstrap_client_shell(app: &mut App) {
@@ -25,11 +25,14 @@ pub fn bootstrap_client_shell(app: &mut App) {
     app.insert_resource(WorldMutationQueue::default());
     app.insert_resource(WorldInitialized::default());
     app.insert_resource(TerrainGeneration::default());
+    let seed = WorldSeed::random();
+    let seed_value = seed.0;
+    app.insert_resource(seed);
     app.insert_resource(LocalPlayerId::default());
     app.insert_resource(RenderExtractState::default());
     app.insert_resource(RenderWorld::default());
     app.insert_resource(RenderSurfaceInfo::default());
-    app.insert_resource(SpectatorCamera::default());
+    app.insert_resource(reset_spectator_for_world(DebugWorldKind::Flat, seed_value));
     app.insert_resource(ActivePlayMode::default());
     app.insert_resource(ActiveDebugWorld::default());
 }

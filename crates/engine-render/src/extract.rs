@@ -1,3 +1,5 @@
+use engine_world::BlockPos;
+
 use crate::camera::Camera;
 use crate::mesh::SolidMesh;
 use crate::world_mesh::ChunkMeshCache;
@@ -8,6 +10,8 @@ pub struct RenderWorld {
     pub opaque: SolidMesh,
     pub cutout: SolidMesh,
     pub animation_tick: u32,
+    pub target_block: Option<BlockPos>,
+    pub mesh_generation: u64,
     pub ready: bool,
 }
 

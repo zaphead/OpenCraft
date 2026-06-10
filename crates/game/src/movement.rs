@@ -12,9 +12,10 @@ pub const SPECTATOR_SPRINT_MULT: f32 = 3.0;
 /// Lower = more ice slide when input is released.
 pub const SPECTATOR_DRAG: f32 = 1.6;
 /// Max steering speed added along input while airborne (does not cut carried ground speed).
-pub const AIR_CONTROL_SPEED: f32 = 1.75;
-pub const AIR_ACCEL: f32 = 35.0;
-/// Passive bleed on lateral speed while airborne — very light so sprint carry coasts through jumps.
+pub const AIR_SPEED_FACTOR: f32 = 0.6;
+/// Airborne steering acceleration as a fraction of grounded acceleration.
+pub const AIR_ACCEL_FACTOR: f32 = 0.25;
+/// Passive bleed on lateral speed while airborne with no steering input.
 pub const AIR_DRAG: f32 = 0.165;
 
 #[derive(Debug, Clone, Copy)]

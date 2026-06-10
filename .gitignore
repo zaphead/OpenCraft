@@ -1,3 +1,6 @@
 /target
 **/*.rs.bk
 .DS_Store
+
+# Extracted source packs (zip is committed)
+source-packs/*/extracted/
