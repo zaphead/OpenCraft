@@ -4,7 +4,7 @@ use glam::Vec3;
 use crate::components::{Collider, NetPlayerId, Player, Transform, Velocity, WorldInitialized};
 use crate::input::LocalPlayerId;
 use crate::mode::NetworkClient;
-use crate::systems::terrain::spawn_height;
+use crate::systems::terrain::player_spawn_center_z;
 
 pub fn spawn_local_player_system(ctx: &mut SystemContext<'_>) {
     if ctx.resources.get::<NetworkClient>().is_some() {
@@ -56,15 +56,14 @@ pub fn spawn_net_player(ctx: &mut SystemContext<'_>, player_id: u32) {
     }
 
     let offset = (player_id as f32 * 4.0) % 32.0;
-    let x = offset as i32;
-    let y = spawn_height(x, 0) as f32;
+    let z = player_spawn_center_z();
     ctx.world.spawn((
         Player,
         NetPlayerId(player_id),
         Transform {
-            position: Vec3::new(offset + 0.5, y, 0.5),
+            position: Vec3::new(offset + 0.5, 0.5, z),
             yaw: 0.0,
-            pitch: 0.0,
+            pitch: -0.2,
         },
         Velocity::default(),
         Collider {

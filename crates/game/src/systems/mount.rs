@@ -2,6 +2,7 @@ use engine_core::SystemContext;
 use glam::Vec3;
 use hecs::Entity;
 
+use crate::axes::{horizontal_forward, horizontal_right, UP};
 use crate::components::{Collider, Mounted, Mountable, Player, Rider, Transform, Velocity};
 use crate::input::{local_player_entity, resolve_input};
 use crate::systems::physics::collision::collides_aabb;
@@ -80,8 +81,8 @@ fn dismount_player(ctx: &mut SystemContext<'_>, player_entity: Entity) {
         .world
         .get::<&Transform>(mount_entity)
         .map(|transform| {
-            let forward = Vec3::new(transform.yaw.sin(), 0.0, transform.yaw.cos());
-            transform.position + Vec3::new(-forward.z, 0.5, forward.x)
+            let right = horizontal_right(transform.yaw);
+            transform.position + right * 0.5 + UP * 0.5
         })
         .unwrap_or(Vec3::ZERO);
 
@@ -124,14 +125,14 @@ pub fn mounted_movement_system(ctx: &mut SystemContext<'_>) {
         };
 
         mount_transform.yaw -= input.look_delta.x * 0.002;
-        let forward = Vec3::new(mount_transform.yaw.sin(), 0.0, mount_transform.yaw.cos());
-        let right = Vec3::new(forward.z, 0.0, -forward.x);
+        let forward = horizontal_forward(mount_transform.yaw);
+        let right = horizontal_right(mount_transform.yaw);
         let wish = (forward * input.move_axis.y + right * input.move_axis.x).normalize_or_zero();
 
         mount_velocity.0.x = wish.x * MOUNT_SPEED;
-        mount_velocity.0.z = wish.z * MOUNT_SPEED;
+        mount_velocity.0.y = wish.y * MOUNT_SPEED;
 
-        player_transform.position = mount_transform.position + Vec3::new(0.0, 0.9, 0.0);
+        player_transform.position = mount_transform.position + UP * 0.9;
         player_transform.yaw = mount_transform.yaw;
         player_transform.pitch = -0.25;
     }
@@ -166,7 +167,7 @@ pub fn mounted_physics_system(ctx: &mut SystemContext<'_>) {
         .collect();
 
     for (mount_entity, start_position, mut velocity, half_extents) in mounts {
-        velocity.y -= 18.0 * delta;
+        velocity -= UP * 18.0 * delta;
         let mut position = start_position;
         for axis in 0..3 {
             let delta_axis = velocity[axis] * delta;

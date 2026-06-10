@@ -4,6 +4,8 @@ use glam::Vec2;
 pub struct InputState {
     pub move_axis: Vec2,
     pub look_delta: Vec2,
+    pub ascend: bool,
+    pub descend: bool,
     pub jump: bool,
     pub interact: bool,
     pub break_block: bool,
@@ -12,6 +14,10 @@ pub struct InputState {
 }
 
 impl InputState {
+    pub fn vertical_axis(&self) -> f32 {
+        (self.ascend as i32 - self.descend as i32) as f32
+    }
+
     pub fn pressed(&self, action: Action) -> bool {
         match action {
             Action::MoveForward => self.move_axis.y > 0.0,

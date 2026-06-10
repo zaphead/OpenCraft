@@ -3,7 +3,7 @@ use glam::IVec3;
 use crate::block::{BlockId, BlockPos};
 
 const AIR: BlockId = 0;
-const WORLD_MIN: i32 = -512;
+const WORLD_MIN: IVec3 = IVec3::new(-512, -512, -512);
 const WORLD_SIZE: i32 = 1024;
 const MAX_DEPTH: u8 = 10;
 
@@ -85,28 +85,38 @@ fn empty_children() -> [Option<Box<OctreeNode>>; 8] {
     std::array::from_fn(|_| None)
 }
 
-fn child_bounds(min: i32, size: i32, index: usize) -> (i32, i32) {
+fn child_bounds(min: IVec3, size: i32, index: usize) -> (IVec3, i32) {
     let half = size / 2;
-    let offset = if index & 1 != 0 { half } else { 0 };
+    let offset = IVec3::new(
+        if index & 1 != 0 { half } else { 0 },
+        if index & 2 != 0 { half } else { 0 },
+        if index & 4 != 0 { half } else { 0 },
+    );
     (min + offset, half)
 }
 
-fn child_index(position: IVec3, min: i32, size: i32) -> usize {
+fn child_index(position: IVec3, min: IVec3, size: i32) -> usize {
     let half = size / 2;
     let mut index = 0;
-    if position.x >= min + half {
+    if position.x >= min.x + half {
         index |= 1;
     }
-    if position.y >= min + half {
+    if position.y >= min.y + half {
         index |= 2;
     }
-    if position.z >= min + half {
+    if position.z >= min.z + half {
         index |= 4;
     }
     index
 }
 
-fn get_block_node(node: &OctreeNode, position: BlockPos, min: i32, size: i32, depth: u8) -> BlockId {
+fn get_block_node(
+    node: &OctreeNode,
+    position: BlockPos,
+    min: IVec3,
+    size: i32,
+    depth: u8,
+) -> BlockId {
     match node {
         OctreeNode::Leaf(block) => *block,
         OctreeNode::Branch { children, aggregate } => {
@@ -127,7 +137,7 @@ fn set_block_node(
     mut node: Box<OctreeNode>,
     position: BlockPos,
     block: BlockId,
-    min: i32,
+    min: IVec3,
     size: i32,
     depth: u8,
 ) -> Box<OctreeNode> {
@@ -171,7 +181,7 @@ fn set_block_node(
 fn remove_block_node(
     node: Option<Box<OctreeNode>>,
     position: BlockPos,
-    min: i32,
+    min: IVec3,
     size: i32,
     depth: u8,
 ) -> Option<Box<OctreeNode>> {
@@ -240,7 +250,7 @@ fn node_aggregate(node: &OctreeNode) -> BlockId {
 
 fn visit_region<F>(
     node: &OctreeNode,
-    min: i32,
+    min: IVec3,
     size: i32,
     depth: u8,
     region_min: IVec3,
@@ -249,11 +259,10 @@ fn visit_region<F>(
 ) where
     F: FnMut(BlockPos, BlockId),
 {
-    let node_min = IVec3::new(min, min, min);
-    let node_max = IVec3::new(min + size, min + size, min + size);
-    if region_max.x <= node_min.x
-        || region_max.y <= node_min.y
-        || region_max.z <= node_min.z
+    let node_max = min + IVec3::splat(size);
+    if region_max.x <= min.x
+        || region_max.y <= min.y
+        || region_max.z <= min.z
         || region_min.x >= node_max.x
         || region_min.y >= node_max.y
         || region_min.z >= node_max.z
@@ -263,17 +272,14 @@ fn visit_region<F>(
 
     match node {
         OctreeNode::Leaf(block) => {
-            if *block != AIR {
-                let pos = BlockPos::new(min, min, min);
-                if pos.0.x >= region_min.x
-                    && pos.0.y >= region_min.y
-                    && pos.0.z >= region_min.z
-                    && pos.0.x < region_max.x
-                    && pos.0.y < region_max.y
-                    && pos.0.z < region_max.z
-                {
-                    f(pos, *block);
-                }
+            if *block != AIR && min.x >= region_min.x
+                && min.y >= region_min.y
+                && min.z >= region_min.z
+                && min.x < region_max.x
+                && min.y < region_max.y
+                && min.z < region_max.z
+            {
+                f(BlockPos(min), *block);
             }
         }
         OctreeNode::Branch { children, .. } => {
@@ -321,6 +327,23 @@ mod tests {
             OctreeNode::Branch { aggregate, .. } => assert_ne!(*aggregate, AIR),
             OctreeNode::Leaf(_) => panic!("expected branch root"),
         }
+    }
+
+    #[test]
+    fn negative_coordinates_round_trip() {
+        let mut world = SparseVoxelOctree::default();
+        let pos = BlockPos::new(-64, -64, 0);
+        world.set_block(pos, 3);
+        assert_eq!(world.get_block(pos), 3);
+        assert_eq!(world.get_block(BlockPos::new(-1, -1, 0)), 0);
+    }
+
+    #[test]
+    fn grass_plane_does_not_fill_vertical_column() {
+        let mut world = SparseVoxelOctree::default();
+        world.set_block(BlockPos::new(-16, -16, 0), 3);
+        assert_eq!(world.get_block(BlockPos::new(-16, -16, 0)), 3);
+        assert_eq!(world.get_block(BlockPos::new(-16, -16, 1)), AIR);
     }
 
     #[test]

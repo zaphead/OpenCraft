@@ -53,6 +53,5 @@ pub struct WorldInitialized(pub bool);
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TerrainGeneration {
-    pub next_column: i32,
     pub complete: bool,
 }

@@ -4,6 +4,7 @@ use engine_world::{BlockPos, SparseVoxelOctree, WorldMutationQueue};
 use glam::Vec3;
 use hecs::Entity;
 
+use crate::axes::view_forward;
 use crate::components::{Mounted, NetPlayerId, Player, Transform};
 use crate::events::BlockChangeIntent;
 use crate::input::resolve_input;
@@ -42,8 +43,8 @@ pub fn block_interaction_system(ctx: &mut SystemContext<'_>) {
             continue;
         }
 
-        let origin = transform.position + Vec3::new(0.0, 1.5, 0.0);
-        let direction = forward(&transform);
+        let origin = transform.position + Vec3::new(0.0, 0.0, 1.5);
+        let direction = view_forward(transform.yaw, transform.pitch);
 
         let Some(hit) = raycast_voxel(ctx, origin, direction, REACH) else {
             continue;
@@ -79,12 +80,6 @@ pub fn block_interaction_system(ctx: &mut SystemContext<'_>) {
 struct RayHit {
     block_pos: BlockPos,
     normal: glam::IVec3,
-}
-
-fn forward(transform: &Transform) -> Vec3 {
-    let (sy, cy) = transform.yaw.sin_cos();
-    let (sp, cp) = transform.pitch.sin_cos();
-    Vec3::new(sy * cp, sp, cy * cp).normalize()
 }
 
 fn raycast_voxel(

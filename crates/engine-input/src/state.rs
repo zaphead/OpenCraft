@@ -37,11 +37,8 @@ fn apply_keyboard(input: &mut InputState, event: &KeyEvent) {
         KeyCode::KeyS => input.move_axis.y = if pressed { -1.0 } else { input.move_axis.y.max(0.0) },
         KeyCode::KeyA => input.move_axis.x = if pressed { -1.0 } else { input.move_axis.x.max(0.0) },
         KeyCode::KeyD => input.move_axis.x = if pressed { 1.0 } else { input.move_axis.x.min(0.0) },
-        KeyCode::Space => {
-            if pressed {
-                input.jump = true;
-            }
-        }
+        KeyCode::Space => input.ascend = pressed,
+        KeyCode::ControlLeft | KeyCode::ControlRight => input.descend = pressed,
         KeyCode::KeyE => {
             if pressed {
                 input.interact = true;

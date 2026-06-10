@@ -14,9 +14,9 @@ pub struct Camera {
 impl Default for Camera {
     fn default() -> Self {
         Self {
-            position: Vec3::new(0.0, 20.0, 0.0),
+            position: Vec3::new(0.0, 0.0, 8.0),
             yaw: 0.0,
-            pitch: -0.2,
+            pitch: -0.35,
             fov_y: 70.0_f32.to_radians(),
             aspect: 16.0 / 9.0,
             near: 0.1,
@@ -29,15 +29,15 @@ impl Camera {
     pub fn forward(&self) -> Vec3 {
         let (sy, cy) = self.yaw.sin_cos();
         let (sp, cp) = self.pitch.sin_cos();
-        Vec3::new(sy * cp, sp, cy * cp).normalize()
+        Vec3::new(sy * cp, cy * cp, sp).normalize()
     }
 
     pub fn right(&self) -> Vec3 {
-        self.forward().cross(Vec3::Y).normalize()
+        self.forward().cross(Vec3::Z).normalize()
     }
 
     pub fn view_matrix(&self) -> Mat4 {
-        Mat4::look_to_rh(self.position, self.forward(), Vec3::Y)
+        Mat4::look_to_rh(self.position, self.forward(), Vec3::Z)
     }
 
     pub fn projection_matrix(&self) -> Mat4 {

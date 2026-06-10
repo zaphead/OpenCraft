@@ -18,9 +18,11 @@ use client::systems::input::PendingWinitInput;
 use client::systems::net::ClientNet;
 use client::systems::present::ClientRenderer;
 use client::systems::register_client_schedule;
+use client::systems::spectator::SpectatorCamera;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::{DeviceEvent, ElementState, MouseButton, WindowEvent};
+use winit::event::{DeviceEvent, ElementState, KeyEvent, MouseButton, WindowEvent};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{CursorGrabMode, Window, WindowAttributes, WindowId};
 
@@ -51,6 +53,7 @@ impl ClientApp {
         ecs.insert_resource(RenderExtractState::default());
         ecs.insert_resource(RenderWorld::default());
         ecs.insert_resource(RenderSurfaceInfo::default());
+        ecs.insert_resource(SpectatorCamera::default());
 
         let blocks_path = blocks_asset_path(env!("CARGO_MANIFEST_DIR"));
         let registry = load_block_registry(&blocks_path);
@@ -196,11 +199,18 @@ impl ApplicationHandler for ClientApp {
                 button: MouseButton::Left,
                 ..
             } => {
-                if let Some(window) = &self.window {
-                    let _ = window.set_cursor_grab(CursorGrabMode::Locked);
-                    window.set_cursor_visible(false);
-                    self.input.cursor_locked = true;
-                }
+                lock_cursor(&self.window, &mut self.input);
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state: ElementState::Pressed,
+                        physical_key: PhysicalKey::Code(KeyCode::Escape),
+                        ..
+                    },
+                ..
+            } => {
+                unlock_cursor(&self.window, &mut self.input);
             }
             _ => {}
         }
@@ -230,6 +240,24 @@ impl ApplicationHandler for ClientApp {
             Instant::now() + Duration::from_secs_f32(1.0 / 60.0),
         ));
     }
+}
+
+fn lock_cursor(window: &Option<Arc<Window>>, input: &mut InputState) {
+    let Some(window) = window else {
+        return;
+    };
+    let _ = window.set_cursor_grab(CursorGrabMode::Locked);
+    window.set_cursor_visible(false);
+    input.cursor_locked = true;
+}
+
+fn unlock_cursor(window: &Option<Arc<Window>>, input: &mut InputState) {
+    let Some(window) = window else {
+        return;
+    };
+    let _ = window.set_cursor_grab(CursorGrabMode::None);
+    window.set_cursor_visible(true);
+    input.cursor_locked = false;
 }
 
 fn center_window_on_monitor(window: &Window) {

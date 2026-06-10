@@ -15,5 +15,5 @@ pub use world_mesh::{
     ChunkMeshCache, RenderScene, extract_render_scene, mesh_chunk, MAX_CHUNK_REBUILDS_PER_FRAME,
 };
 
-/// Screen-space LOD distance for chunk mesh generation (world units).
-pub const CHUNK_MESH_LOD_DISTANCE: f32 = 192.0;
+/// Max distance from the camera to build and retain chunk meshes (world units).
+pub const CHUNK_MESH_RENDER_DISTANCE: f32 = 192.0;

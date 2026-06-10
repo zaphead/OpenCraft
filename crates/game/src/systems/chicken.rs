@@ -10,7 +10,7 @@ use rand::Rng;
 use crate::components::{
     Chicken, Collider, Mountable, Renderable, Rider, Transform, Velocity, WorldInitialized,
 };
-use crate::systems::terrain::{spawn_height, WORLD_RADIUS};
+use crate::systems::terrain::{player_spawn_center_z, WORLD_RADIUS};
 
 const CHICKEN_COUNT: i32 = 12;
 
@@ -31,19 +31,19 @@ pub fn chicken_spawn_system(ctx: &mut SystemContext<'_>) {
     let mut rng = rand::thread_rng();
     for _ in 0..CHICKEN_COUNT {
         let x = rng.gen_range((-WORLD_RADIUS + 8)..(WORLD_RADIUS - 8));
-        let z = rng.gen_range((-WORLD_RADIUS + 8)..(WORLD_RADIUS - 8));
-        let y = spawn_height(x, z) as f32;
+        let y = rng.gen_range((-WORLD_RADIUS + 8)..(WORLD_RADIUS - 8));
+        let center_z = player_spawn_center_z() - 0.45;
 
         ctx.world.spawn((
             Chicken {
                 wander_timer: rng.gen_range(1.0..4.0),
-                wander_direction: Vec3::new(rng.gen_range(-1.0..1.0), 0.0, rng.gen_range(-1.0..1.0))
+                wander_direction: Vec3::new(rng.gen_range(-1.0..1.0), rng.gen_range(-1.0..1.0), 0.0)
                     .normalize_or_zero(),
                 speed: 2.5,
             },
             Mountable,
             Transform {
-                position: Vec3::new(x as f32 + 0.5, y, z as f32 + 0.5),
+                position: Vec3::new(x as f32 + 0.5, y as f32 + 0.5, center_z),
                 yaw: rng.gen_range(0.0..std::f32::consts::TAU),
                 pitch: 0.0,
             },

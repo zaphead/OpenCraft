@@ -100,6 +100,16 @@ When adding a new system:
 
 ## 4. World Representation
 
+### 4.0 Coordinate system
+
+World space uses **Z-up**:
+
+* **Z** is vertical — gravity, jump, spectator fly up/down (Space / Ctrl).
+* **XY** is the horizontal plane — terrain surfaces, WASD movement.
+* `glam::Vec3` components map directly: `(x, y, z)` → world `(X, Y, Z)`.
+
+All gameplay, physics, camera, and meshing code must use this convention. Shared helpers live in `game::axes`.
+
 ### 4.1 Sparse Voxel Octree (SVO)
 
 The world is represented as a Sparse Voxel Octree. The SVO is a resource — there is one per running instance (server holds the authoritative SVO; client holds its own copy for local queries and rendering).

@@ -1,21 +1,21 @@
 use engine_assets::BlockRegistry;
 use engine_core::SystemContext;
-use engine_render::{
-    cube_mesh, Camera, RenderExtractState, RenderSurfaceInfo, RenderWorld,
-};
+use engine_render::{Camera, RenderExtractState, RenderSurfaceInfo, RenderWorld};
 use engine_world::{BlockChanged, SparseVoxelOctree};
-use game::{local_player_entity, Renderable, Transform, WorldInitialized};
-use glam::Vec3;
+use game::WorldInitialized;
 
-use crate::mesh_pipeline::{
-    enqueue_mesh_batch, queue_initial_world_chunks, rebuild_chunk_meshes,
-};
+use crate::mesh_pipeline::{bootstrap_terrain_meshes, rebuild_chunk_meshes};
+use crate::systems::spectator::SpectatorCamera;
 
 pub fn sync_block_changes_system(ctx: &mut SystemContext<'_>) {
     let Some(state) = ctx.resources.get_mut::<RenderExtractState>() else {
         return;
     };
     let changes: Vec<BlockChanged> = ctx.events.drain::<BlockChanged>();
+    // Bulk terrain fill emits one event per block; initial mesh bootstrap handles that.
+    if changes.len() > 64 {
+        return;
+    }
     for change in changes {
         state.mesh_cache.mark_dirty_neighbors(change.position);
     }
@@ -33,14 +33,7 @@ pub fn queue_initial_world_meshes_system(ctx: &mut SystemContext<'_>) {
     let Some(state) = ctx.resources.get_mut::<RenderExtractState>() else {
         return;
     };
-    queue_initial_world_chunks(state);
-}
-
-pub fn enqueue_world_mesh_batch_system(ctx: &mut SystemContext<'_>) {
-    let Some(state) = ctx.resources.get_mut::<RenderExtractState>() else {
-        return;
-    };
-    enqueue_mesh_batch(state);
+    bootstrap_terrain_meshes(state);
 }
 
 pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
@@ -51,26 +44,17 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
         .unwrap_or(16.0 / 9.0);
     let camera = extract_camera(ctx, aspect);
 
-    let entity_meshes: Vec<_> = ctx
-        .world
-        .query::<(&Transform, &Renderable)>()
-        .iter()
-        .map(|(_, (transform, renderable))| {
-            translate_mesh(
-                cube_mesh(glam::IVec3::ZERO, renderable.size, renderable.color),
-                transform.position - Vec3::splat(renderable.size * 0.5),
-            )
-        })
-        .collect();
-
-    let mut meshes = ctx
+    let meshes = ctx
         .resources
         .with_triple::<SparseVoxelOctree, BlockRegistry, RenderExtractState, _>(|world, registry, state| {
-            let _ = rebuild_chunk_meshes(state, world, registry, camera.position);
+            if state.world_mesh_queued && state.mesh_cache.has_dirty_chunks() {
+                let _ = rebuild_chunk_meshes(state, world, registry, camera.position, true);
+            } else if state.mesh_cache.has_dirty_chunks() {
+                let _ = rebuild_chunk_meshes(state, world, registry, camera.position, false);
+            }
             state.mesh_cache.all_meshes()
         })
         .unwrap_or_default();
-    meshes.extend(entity_meshes);
 
     if let Some(render_world) = ctx.resources.get_mut::<RenderWorld>() {
         render_world.camera = camera;
@@ -80,27 +64,15 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
 }
 
 fn extract_camera(ctx: &SystemContext<'_>, aspect: f32) -> Camera {
-    let mut camera = Camera::default();
-    camera.aspect = aspect;
-
-    if let Some(entity) = local_player_entity(ctx) {
-        if let Ok(transform) = ctx.world.get::<&Transform>(entity) {
-            camera.position = transform.position + Vec3::new(0.0, 1.6, 0.0);
-            camera.yaw = transform.yaw;
-            camera.pitch = transform.pitch;
-        }
+    let spectator = ctx
+        .resources
+        .get::<SpectatorCamera>()
+        .expect("SpectatorCamera must be registered");
+    Camera {
+        position: spectator.position,
+        yaw: spectator.yaw,
+        pitch: spectator.pitch,
+        aspect,
+        ..Camera::default()
     }
-
-    camera
-}
-
-fn translate_mesh(
-    mut mesh: engine_render::SolidMesh,
-    offset: Vec3,
-) -> engine_render::SolidMesh {
-    for vertex in &mut mesh.vertices {
-        let position = Vec3::from_array(vertex.position) + offset;
-        vertex.position = position.to_array();
-    }
-    mesh
 }

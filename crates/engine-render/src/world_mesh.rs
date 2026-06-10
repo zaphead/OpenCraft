@@ -44,7 +44,7 @@ impl ChunkMeshCache {
         world: &SparseVoxelOctree,
         registry: &BlockRegistry,
     ) -> usize {
-        self.rebuild_dirty_near(world, registry, Vec3::ZERO, f32::MAX)
+        self.rebuild_dirty_near(world, registry, Vec3::ZERO, f32::MAX, false)
     }
 
     pub fn has_dirty_chunks(&self) -> bool {
@@ -52,12 +52,46 @@ impl ChunkMeshCache {
     }
 
     /// Rebuilds up to [`MAX_CHUNK_REBUILDS_PER_FRAME`] nearest dirty chunks. Returns how many were rebuilt.
+    /// Rebuild every dirty chunk (no per-frame or distance limits).
+    pub fn rebuild_all_dirty(
+        &mut self,
+        world: &SparseVoxelOctree,
+        registry: &BlockRegistry,
+        top_faces_only: bool,
+    ) -> usize {
+        let dirty: Vec<IVec3> = self.dirty.keys().copied().collect();
+        for chunk in &dirty {
+            self.dirty.remove(chunk);
+        }
+
+        let rebuilt: Vec<(IVec3, SolidMesh)> = dirty
+            .par_iter()
+            .map(|chunk| {
+                (
+                    *chunk,
+                    mesh_chunk(world, registry, *chunk, top_faces_only),
+                )
+            })
+            .collect();
+
+        let count = rebuilt.len();
+        for (chunk, mesh) in rebuilt {
+            if mesh.vertices.is_empty() {
+                self.meshes.remove(&chunk);
+            } else {
+                self.meshes.insert(chunk, mesh);
+            }
+        }
+        count
+    }
+
     pub fn rebuild_dirty_near(
         &mut self,
         world: &SparseVoxelOctree,
         registry: &BlockRegistry,
         camera_position: Vec3,
         max_distance: f32,
+        top_faces_only: bool,
     ) -> usize {
         let max_distance_sq = max_distance * max_distance;
         let mut dirty: Vec<IVec3> = self
@@ -86,9 +120,10 @@ impl ChunkMeshCache {
         let rebuilt: Vec<(IVec3, SolidMesh)> = dirty
             .par_iter()
             .map(|chunk| {
-                let step = lod_step_for_chunk(*chunk, camera_position);
-                let mesh = mesh_chunk_with_lod(world, registry, *chunk, step, camera_position);
-                (*chunk, mesh)
+                (
+                    *chunk,
+                    mesh_chunk(world, registry, *chunk, top_faces_only),
+                )
             })
             .collect();
 
@@ -100,6 +135,13 @@ impl ChunkMeshCache {
                 self.meshes.insert(chunk, mesh);
             }
         }
+
+        self.meshes.retain(|chunk, _| {
+            let center =
+                (*chunk * CHUNK_SIZE).as_vec3() + Vec3::splat(CHUNK_SIZE as f32 * 0.5);
+            center.distance_squared(camera_position) <= max_distance_sq
+        });
+
         count
     }
 
@@ -112,44 +154,17 @@ pub fn mesh_chunk(
     world: &SparseVoxelOctree,
     registry: &BlockRegistry,
     chunk: IVec3,
-) -> SolidMesh {
-    mesh_chunk_with_lod(world, registry, chunk, 1, Vec3::ZERO)
-}
-
-/// Screen-space LOD step from chunk center distance to the camera.
-pub fn lod_step_for_chunk(chunk: IVec3, camera_position: Vec3) -> i32 {
-    let center = (chunk * CHUNK_SIZE).as_vec3() + Vec3::splat(CHUNK_SIZE as f32 * 0.5);
-    let distance = center.distance(camera_position);
-    if distance < 64.0 {
-        1
-    } else if distance < 128.0 {
-        2
-    } else {
-        4
-    }
-}
-
-pub fn mesh_chunk_with_lod(
-    world: &SparseVoxelOctree,
-    registry: &BlockRegistry,
-    chunk: IVec3,
-    step: i32,
-    camera_position: Vec3,
+    top_faces_only: bool,
 ) -> SolidMesh {
     let origin = chunk * CHUNK_SIZE;
     let mut mesh = SolidMesh::default();
-    let step = step.max(1);
 
-    let mut x = 0;
-    while x < CHUNK_SIZE {
-        let mut y = 0;
-        while y < CHUNK_SIZE {
-            let mut z = 0;
-            while z < CHUNK_SIZE {
+    for x in 0..CHUNK_SIZE {
+        for y in 0..CHUNK_SIZE {
+            for z in 0..CHUNK_SIZE {
                 let pos = BlockPos::new(origin.x + x, origin.y + y, origin.z + z);
                 let block = world.get_block(pos);
                 if !registry.is_solid(block) {
-                    z += step;
                     continue;
                 }
 
@@ -157,100 +172,21 @@ pub fn mesh_chunk_with_lod(
                 let px = pos.0;
 
                 for (normal, offset) in FACE_OFFSETS {
-                    let neighbor = BlockPos::new(px.x + offset.x, px.y + offset.y, px.z + offset.z);
-                    if should_cull_face(world, registry, neighbor, step, chunk, camera_position) {
+                    if top_faces_only && normal != [0.0, 0.0, 1.0] {
+                        continue;
+                    }
+                    let neighbor =
+                        BlockPos::new(px.x + offset.x, px.y + offset.y, px.z + offset.z);
+                    if registry.is_solid(world.get_block(neighbor)) {
                         continue;
                     }
                     push_face(&mut mesh, px.as_vec3(), normal, color);
                 }
-                z += step;
             }
-            y += step;
         }
-        x += step;
-    }
-
-    if step > 1 {
-        stitch_lod_seams(world, registry, chunk, step, &mut mesh);
     }
 
     mesh
-}
-
-fn should_cull_face(
-    world: &SparseVoxelOctree,
-    registry: &BlockRegistry,
-    neighbor: BlockPos,
-    step: i32,
-    chunk: IVec3,
-    camera_position: Vec3,
-) -> bool {
-    if registry.is_solid(world.get_block(neighbor)) {
-        return true;
-    }
-    let neighbor_chunk = neighbor.chunk_key();
-    if neighbor_chunk != chunk && lod_step_for_chunk(neighbor_chunk, camera_position) != step {
-        return false;
-    }
-    false
-}
-
-/// Simplified Transvoxel seam fix: emit border faces at chunk edges when coarser LOD is active.
-fn stitch_lod_seams(
-    world: &SparseVoxelOctree,
-    registry: &BlockRegistry,
-    chunk: IVec3,
-    step: i32,
-    mesh: &mut SolidMesh,
-) {
-    let origin = chunk * CHUNK_SIZE;
-    let max = CHUNK_SIZE - 1;
-
-    for x in (0..CHUNK_SIZE).step_by(step as usize) {
-        for y in (0..CHUNK_SIZE).step_by(step as usize) {
-            for z in [0, max] {
-                emit_seam_face_if_needed(world, registry, origin, x, y, z, mesh);
-            }
-        }
-    }
-    for x in (0..CHUNK_SIZE).step_by(step as usize) {
-        for z in (0..CHUNK_SIZE).step_by(step as usize) {
-            for y in [0, max] {
-                emit_seam_face_if_needed(world, registry, origin, x, y, z, mesh);
-            }
-        }
-    }
-    for y in (0..CHUNK_SIZE).step_by(step as usize) {
-        for z in (0..CHUNK_SIZE).step_by(step as usize) {
-            for x in [0, max] {
-                emit_seam_face_if_needed(world, registry, origin, x, y, z, mesh);
-            }
-        }
-    }
-}
-
-fn emit_seam_face_if_needed(
-    world: &SparseVoxelOctree,
-    registry: &BlockRegistry,
-    origin: IVec3,
-    x: i32,
-    y: i32,
-    z: i32,
-    mesh: &mut SolidMesh,
-) {
-    let pos = BlockPos::new(origin.x + x, origin.y + y, origin.z + z);
-    let block = world.get_block(pos);
-    if !registry.is_solid(block) {
-        return;
-    }
-    let color = registry.color(block);
-    let px = pos.0;
-    for (normal, offset) in FACE_OFFSETS {
-        let neighbor = BlockPos::new(px.x + offset.x, px.y + offset.y, px.z + offset.z);
-        if !registry.is_solid(world.get_block(neighbor)) {
-            push_face(mesh, px.as_vec3(), normal, color);
-        }
-    }
 }
 
 pub fn extract_render_scene(
@@ -332,4 +268,33 @@ fn push_face(mesh: &mut SolidMesh, origin: glam::Vec3, normal: [f32; 3], color: 
 
     mesh.indices
         .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use engine_assets::{load_block_registry, blocks_asset_path};
+    use glam::IVec3;
+
+    fn grass_world() -> (SparseVoxelOctree, BlockRegistry) {
+        let path = blocks_asset_path(concat!(env!("CARGO_MANIFEST_DIR"), "/../../client"));
+        let registry = load_block_registry(&path);
+        let grass = registry.id_by_name("grass").expect("grass block");
+        let mut world = SparseVoxelOctree::default();
+        for x in -64..64 {
+            for y in -64..64 {
+                world.set_block(BlockPos::new(x, y, 0), grass);
+            }
+        }
+        (world, registry)
+    }
+
+    #[test]
+    fn mesh_chunk_covers_negative_quadrant() {
+        let (world, registry) = grass_world();
+        let neg = mesh_chunk(&world, &registry, IVec3::new(-1, -1, 0), true);
+        let pos = mesh_chunk(&world, &registry, IVec3::new(0, 0, 0), true);
+        assert!(!neg.vertices.is_empty(), "negative chunk should mesh");
+        assert_eq!(neg.vertices.len(), pos.vertices.len());
+    }
 }

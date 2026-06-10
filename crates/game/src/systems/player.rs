@@ -5,6 +5,7 @@ use engine_world::SparseVoxelOctree;
 use glam::Vec3;
 use hecs::Entity;
 
+use crate::axes::{grounded_probe_offset, horizontal_forward, horizontal_right, UP};
 use crate::components::{Collider, Mounted, NetPlayerId, Player, Transform, Velocity};
 use crate::input::resolve_input;
 use crate::systems::physics::collision::collides_aabb;
@@ -67,15 +68,15 @@ pub fn player_movement_system(ctx: &mut SystemContext<'_>) {
             continue;
         };
 
-        let forward = Vec3::new(transform.yaw.sin(), 0.0, transform.yaw.cos());
-        let right = Vec3::new(forward.z, 0.0, -forward.x);
+        let forward = horizontal_forward(transform.yaw);
+        let right = horizontal_right(transform.yaw);
         let wish = (forward * input.move_axis.y + right * input.move_axis.x).normalize_or_zero();
 
         velocity.0.x = wish.x * WALK_SPEED;
-        velocity.0.z = wish.z * WALK_SPEED;
+        velocity.0.y = wish.y * WALK_SPEED;
 
         if input.jump && grounded {
-            velocity.0.y = JUMP_SPEED;
+            velocity.0.z = JUMP_SPEED;
         }
     }
 }
@@ -95,7 +96,7 @@ pub fn player_physics_system(ctx: &mut SystemContext<'_>) {
         .collect();
 
     for (entity, start_position, mut velocity, half_extents) in updates {
-        velocity.y -= GRAVITY * delta;
+        velocity -= UP * GRAVITY * delta;
         let mut position = start_position;
 
         for axis in 0..3 {
@@ -130,8 +131,8 @@ fn mounted_players(ctx: &SystemContext<'_>) -> HashSet<Entity> {
 fn is_grounded(ctx: &SystemContext<'_>, position: Vec3) -> bool {
     collides_at(
         ctx,
-        position + Vec3::new(0.0, -1.05, 0.0),
-        Vec3::new(0.35, 0.05, 0.35),
+        position + grounded_probe_offset(),
+        Vec3::new(0.35, 0.35, 0.05),
     )
 }
 

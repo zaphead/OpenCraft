@@ -9,6 +9,7 @@ use game::{
 
 use crate::systems::input::PendingWinitInput;
 use crate::systems::register_client_schedule;
+use crate::systems::spectator::SpectatorCamera;
 
 /// Shared client ECS bootstrap for the game binary, diagnostics, and tests.
 pub fn bootstrap_local_app(time: engine_core::Time) -> App {
@@ -24,6 +25,7 @@ pub fn bootstrap_local_app(time: engine_core::Time) -> App {
     app.insert_resource(RenderExtractState::default());
     app.insert_resource(RenderWorld::default());
     app.insert_resource(RenderSurfaceInfo::default());
+    app.insert_resource(SpectatorCamera::default());
 
     let blocks_path = blocks_asset_path(env!("CARGO_MANIFEST_DIR"));
     let registry = load_block_registry(&blocks_path);
