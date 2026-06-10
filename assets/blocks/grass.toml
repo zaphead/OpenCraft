@@ -1,5 +1,9 @@
 id = 3
+layout = "cube_v1"
 name = "grass"
 solid = true
-opaque = true
-layout = "cube_v1"
+tint = "biome_grass"
+
+[[overlays]]
+faces = "side"
+path = "overlay.png"

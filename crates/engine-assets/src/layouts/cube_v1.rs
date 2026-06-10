@@ -62,7 +62,7 @@ pub fn face_from_normal(normal: [f32; 3]) -> CubeFace {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CubeFace {
     Top,
     Bottom,
@@ -70,6 +70,17 @@ pub enum CubeFace {
     Front,
     Right,
     Back,
+}
+
+impl CubeFace {
+    pub const ALL: [CubeFace; 6] = [
+        CubeFace::Top,
+        CubeFace::Bottom,
+        CubeFace::Left,
+        CubeFace::Front,
+        CubeFace::Right,
+        CubeFace::Back,
+    ];
 }
 
 #[cfg(test)]

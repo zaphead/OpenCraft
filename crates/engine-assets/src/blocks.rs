@@ -2,29 +2,65 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use engine_world::BlockId;
+use engine_world::{BlockId, BlockState};
 use serde::Deserialize;
 
 use crate::layouts::UvLayoutId;
+use crate::material::{DrawCategory, TintMode};
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OverlaySpec {
+    pub faces: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StateVariantSpec {
+    pub state: BlockState,
+    pub faces: String,
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CtmSpec {
+    pub faces: String,
+    pub tiles_dir: String,
+    #[serde(default = "default_ctm_tile_count")]
+    pub tile_count: u8,
+}
+
+fn default_ctm_tile_count() -> u8 {
+    16
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BlockDefinition {
     pub id: BlockId,
     pub name: String,
     pub solid: bool,
-    pub opaque: bool,
-    /// UV layout type (default `cube_v1`).
     #[serde(default)]
     pub layout: UvLayoutId,
-    /// Texture folder under `assets/textures/` (default `blocks/{name}`).
     #[serde(default)]
     pub texture: Option<String>,
+    #[serde(default)]
+    pub draw: DrawCategory,
+    #[serde(default)]
+    pub tint: Option<TintModeToml>,
+    #[serde(default)]
+    pub overlays: Vec<OverlaySpec>,
+    #[serde(default)]
+    pub state_variants: Vec<StateVariantSpec>,
+    #[serde(default)]
+    pub ctm: Option<CtmSpec>,
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct BlockRegistry {
-    by_id: HashMap<BlockId, BlockDefinition>,
-    by_name: HashMap<String, BlockId>,
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TintModeToml {
+    #[default]
+    None,
+    BiomeGrass,
+    BiomeFoliage,
 }
 
 impl BlockDefinition {
@@ -33,6 +69,20 @@ impl BlockDefinition {
             .clone()
             .unwrap_or_else(|| format!("blocks/{}", self.name))
     }
+
+    pub fn tint_mode(&self) -> TintMode {
+        match self.tint.unwrap_or_default() {
+            TintModeToml::None => TintMode::None,
+            TintModeToml::BiomeGrass => TintMode::BiomeGrass,
+            TintModeToml::BiomeFoliage => TintMode::BiomeFoliage,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct BlockRegistry {
+    by_id: HashMap<BlockId, BlockDefinition>,
+    by_name: HashMap<String, BlockId>,
 }
 
 impl BlockRegistry {

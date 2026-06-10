@@ -1,6 +1,6 @@
-use engine_assets::{BlockMaterialMap, BlockRegistry};
+use engine_assets::{BlockRegistry, ResolvedBlockMaterials};
 use engine_render::{RenderExtractState, RebuildBudget, CHUNK_MESH_RENDER_DISTANCE};
-use engine_world::{SparseVoxelOctree, CHUNK_SIZE};
+use engine_world::{BiomeMap, SparseVoxelOctree, CHUNK_SIZE};
 use game::{GRASS_PLANE_Z, WORLD_RADIUS};
 use glam::{IVec3, Vec3};
 
@@ -42,7 +42,8 @@ pub fn rebuild_chunk_meshes(
     state: &mut RenderExtractState,
     world: &SparseVoxelOctree,
     registry: &BlockRegistry,
-    materials: &BlockMaterialMap,
+    materials: &ResolvedBlockMaterials,
+    biome: &BiomeMap,
     camera_position: Vec3,
     budget: RebuildBudget,
 ) -> usize {
@@ -50,6 +51,7 @@ pub fn rebuild_chunk_meshes(
         world,
         registry,
         materials,
+        biome,
         camera_position,
         budget,
         true,

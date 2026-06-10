@@ -1,0 +1,26 @@
+# Curated Minecraft → engine block mapping.
+# Run: cargo run -p engine-assets --bin import-texture-pack -- --pack /path/to/pack.zip
+
+[colormaps]
+grass = "colormap/grass.png"
+foliage = "colormap/foliage.png"
+
+[[blocks]]
+engine = "grass"
+model = "grass_block_alt_1"
+tint = "biome_grass"
+overlay = true
+
+[[blocks]]
+engine = "dirt"
+model = "dirt_alt_1"
+
+[[blocks]]
+engine = "stone"
+model = "stone_alt_1"
+
+[[blocks]]
+engine = "leaves"
+model = "birch_leaves_alt_1"
+draw = "cutout"
+tint = "biome_foliage"

@@ -155,9 +155,10 @@ The render thread executes these stages each frame, in order:
 1. **Prepare** — Upload extracted data to GPU (vertex buffers, uniform buffers, texture updates from the asset system).
 2. **Depth Prepass** — Render scene depth only. Enables early-z rejection for opaque geometry.
 3. **Opaque Geometry** — Render fully opaque voxel meshes.
-4. **Transparent Geometry** — Render alpha-blended geometry, sorted back-to-front.
-5. **Post-Processing** — Screen-space effects (ambient occlusion, bloom, tone mapping).
-6. **UI** — Rendered last, on top of everything, in screen space.
+4. **Cutout Geometry** — Alpha-tested meshes (leaves, flora) with depth write.
+5. **Transparent Geometry** — Render alpha-blended geometry, sorted back-to-front.
+6. **Post-Processing** — Screen-space effects (ambient occlusion, bloom, tone mapping).
+7. **UI** — Rendered last, on top of everything, in screen space.
 
 All rendering is done through `wgpu`. No platform-specific graphics API calls appear outside of `engine-render`. Pipeline state objects are created at startup and reused — avoid creating pipelines at runtime.
 
@@ -171,9 +172,11 @@ Seams between adjacent LOD levels are resolved using the Transvoxel algorithm. T
 
 ### 5.4 Mesh Generation
 
-Voxel meshes are generated on the GPU via compute shaders. The CPU submits an octree region and LOD level; the compute pass outputs a vertex buffer. Mesh generation jobs are submitted asynchronously and results are integrated into the render world on completion. There is no synchronous mesh generation on the CPU for terrain geometry.
+**Current MVP:** chunk meshes are built on the CPU during the Extract stage (`mesh_chunk` in `engine-render`). Material resolution (UV, draw category, tint, CTM) runs in the mesher, not at draw time.
 
-Engineers adding new voxel geometry types must work within the existing compute pipeline — adding new surface extraction logic means extending the compute shader, not adding a CPU-side mesh builder.
+**Future:** GPU compute mesh generation may replace CPU extraction. The material resolution API must remain callable from extract workers; draw passes must not read game ECS or SVO data.
+
+See [`material-engine.md`](./material-engine.md) for block material tables and milestone gates.
 
 ---
 
@@ -225,6 +228,10 @@ Assets are loaded asynchronously via the IO thread pool. Every asset is accessed
 The `AssetServer` resource manages loading and caching. In development builds, the asset server watches the filesystem and hot-reloads changed assets. Asset types include textures, audio files, shaders, and block definition data files.
 
 Shaders are compiled at startup from source. There is no runtime shader compilation during gameplay. Shader permutations (for different material types, pipeline variants) are compiled as distinct pipeline state objects.
+
+### 8.1 Block materials
+
+Block appearance is defined in data (`assets/blocks/*.toml` + texture folders) and packed at startup into `ResolvedBlockMaterials` (atlas + per-face lookup tables). Draw category, overlays, state variants, biome tint, animation, and connected textures are documented in [`material-engine.md`](./material-engine.md).
 
 ---
 

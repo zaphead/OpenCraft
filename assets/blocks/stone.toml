@@ -1,5 +1,4 @@
-id = 1
+id = 2
+layout = "cube_v1"
 name = "stone"
 solid = true
-opaque = true
-layout = "cube_v1"

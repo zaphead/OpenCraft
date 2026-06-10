@@ -86,6 +86,8 @@ flowchart TB
 | 15    | Binary wiring                | Complete | PreUpdate/PostUpdate net+input systems; slim `client/main.rs` winit loop                                                           |
 | 16    | Real SVO + async assets      | Complete | Pointer octree with aggregate tests; `AssetServer` + IO thread async block load                                                    |
 | 17    | Architecture debt closure    | Complete | `RenderWorld` extract boundary; dead `RenderThread` removed; design-doc dependency graph enforced                                  |
+| 18    | MC-parity material engine    | Complete | M0–M7 per [`material-engine.md`](./material-engine.md) |
+| 19    | Texture pack importer        | Complete | `import-texture-pack` CLI + [`assets/import/manifest.toml`](../assets/import/manifest.toml) |
 
 Update the **Status** column as work completes. Add dated notes under [Progress log](#progress-log).
 
@@ -362,6 +364,18 @@ Full client–server model per design doc §7:
 - **Phase 11:** Rayon-parallel chunk mesh rebuild, camera-distance LOD culling, `extract_render_scene` snapshot before draw. Dedicated render thread + GPU compute meshing remain future work (macOS requires main-thread surface).
 - **Phase 12:** `engine-net` QUIC (`quinn`) + bincode protocol; server broadcasts `BlockDeltas` and `EntitySnapshots`; client reconciles with prediction stub.
 - **Multiplayer:** `cargo run -p server` then `CJ_SERVER=127.0.0.1:4242 cargo run -p client`.
+
+### 2026-06-10 — MC-parity material engine (Phase 18)
+
+- `ResolvedFace` + `ResolvedBlockMaterials` replace `PackedBlockTextures` / `BlockMaterialMap`.
+- Draw buckets (opaque + cutout), depth prepass + opaque + cutout pipeline passes.
+- Grass runtime overlay (`uv2`), `VoxelCell` + `BlockState`, CTM neighbor masks, biome colormap tint, animation tick in shader.
+- Spec: [`material-engine.md`](./material-engine.md).
+
+### 2026-06-10 — Texture pack importer (Phase 19)
+
+- `cargo run -p engine-assets --bin import-texture-pack` reads zip/dir packs via manifest.
+- Whimscape import: grass (overlay + biome tint), dirt, stone, birch leaves (cutout + foliage colormap).
 
 ### 2026-06-10 — Folder-based block textures + UV layouts
 

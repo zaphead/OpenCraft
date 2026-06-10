@@ -1,41 +1,51 @@
 use bytemuck::{Pod, Zeroable};
-use engine_assets::TextureAtlas;
+use engine_assets::{TextureAtlas, UvRect};
 use wgpu::util::DeviceExt;
 
 use crate::mesh::MeshVertex;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-pub struct CameraUniform {
+pub struct SceneUniform {
     pub view_proj: [[f32; 4]; 4],
+    pub animation_tick: u32,
+    /// WGSL pads `vec2` fields to 8-byte alignment after `u32`.
+    pub _align_colormap: u32,
+    pub colormap_min: [f32; 2],
+    pub colormap_max: [f32; 2],
+    /// WGSL rounds uniform struct size up to 16-byte alignment (88 → 96).
+    pub _struct_pad: [u32; 2],
 }
 
-pub struct RenderPipeline {
-    pub pipeline: wgpu::RenderPipeline,
-    pub camera_bind_group: wgpu::BindGroup,
+pub struct RenderPipelines {
+    pub depth: wgpu::RenderPipeline,
+    pub opaque: wgpu::RenderPipeline,
+    pub cutout: wgpu::RenderPipeline,
+    pub scene_bind_group: wgpu::BindGroup,
     pub atlas_bind_group: wgpu::BindGroup,
-    camera_buffer: wgpu::Buffer,
+    scene_buffer: wgpu::Buffer,
     _atlas_texture: wgpu::Texture,
 }
 
-impl RenderPipeline {
+impl RenderPipelines {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         surface_format: wgpu::TextureFormat,
         atlas: &TextureAtlas,
+        colormap_rect: Option<UvRect>,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("voxel_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("voxel.wgsl").into()),
         });
 
-        let camera_bind_group_layout =
+        let scene_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("camera_bind_group_layout"),
+                label: Some("scene_bind_group_layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -70,42 +80,111 @@ impl RenderPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pipeline_layout"),
-            bind_group_layouts: &[&camera_bind_group_layout, &atlas_bind_group_layout],
+            bind_group_layouts: &[&scene_bind_group_layout, &atlas_bind_group_layout],
             push_constant_ranges: &[],
         });
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("render_pipeline"),
+        let vertex_buffers = [wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<MeshVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: 12,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: 24,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: 32,
+                    shader_location: 3,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: 40,
+                    shader_location: 4,
+                    format: wgpu::VertexFormat::Uint32,
+                },
+                wgpu::VertexAttribute {
+                    offset: 44,
+                    shader_location: 5,
+                    format: wgpu::VertexFormat::Uint32,
+                },
+                wgpu::VertexAttribute {
+                    offset: 48,
+                    shader_location: 6,
+                    format: wgpu::VertexFormat::Uint32,
+                },
+            ],
+        }];
+
+        let primitive = wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
+            ..Default::default()
+        };
+
+        let depth_prepass_stencil = wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::Less,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        };
+
+        let color_pass_stencil = wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: true,
+            // Prepass already wrote these depths; Less rejects equal fragments.
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        };
+
+        let depth = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("depth_pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<MeshVertex>() as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x3,
-                        },
-                        wgpu::VertexAttribute {
-                            offset: 12,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x3,
-                        },
-                        wgpu::VertexAttribute {
-                            offset: 24,
-                            shader_location: 2,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                    ],
-                }],
+                buffers: &vertex_buffers,
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_depth"),
+                targets: &[],
+                compilation_options: Default::default(),
+            }),
+            primitive,
+            depth_stencil: Some(depth_prepass_stencil),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let opaque = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("opaque_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &vertex_buffers,
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_opaque"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: surface_format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -113,58 +192,94 @@ impl RenderPipeline {
                 })],
                 compilation_options: Default::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            primitive,
+            depth_stencil: Some(color_pass_stencil.clone()),
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
         });
 
-        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("camera_buffer"),
-            size: std::mem::size_of::<CameraUniform>() as u64,
+        let cutout = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("cutout_pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &vertex_buffers,
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_cutout"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive,
+            depth_stencil: Some(color_pass_stencil),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let scene_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("scene_buffer"),
+            size: std::mem::size_of::<SceneUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("camera_bind_group"),
-            layout: &camera_bind_group_layout,
+        let (colormap_min, colormap_max) = colormap_rect
+            .map(|rect| (rect.min, rect.max))
+            .unwrap_or(([0.0, 0.0], [0.0, 0.0]));
+
+        let scene_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("scene_bind_group"),
+            layout: &scene_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: camera_buffer.as_entire_binding(),
+                resource: scene_buffer.as_entire_binding(),
             }],
         });
 
         let (atlas_texture, atlas_bind_group) =
             create_atlas_gpu(device, queue, &atlas_bind_group_layout, atlas);
 
+        let _ = (colormap_min, colormap_max);
+
         Self {
-            pipeline,
-            camera_bind_group,
+            depth,
+            opaque,
+            cutout,
+            scene_bind_group,
             atlas_bind_group,
-            camera_buffer,
+            scene_buffer,
             _atlas_texture: atlas_texture,
         }
     }
 
-    pub fn update_camera(&self, queue: &wgpu::Queue, view_proj: glam::Mat4) {
-        let uniform = CameraUniform {
+    pub fn update_scene(
+        &self,
+        queue: &wgpu::Queue,
+        view_proj: glam::Mat4,
+        animation_tick: u32,
+        colormap_rect: Option<UvRect>,
+    ) {
+        let (colormap_min, colormap_max) = colormap_rect
+            .map(|rect| (rect.min, rect.max))
+            .unwrap_or(([0.0, 0.0], [0.0, 0.0]));
+        let uniform = SceneUniform {
             view_proj: view_proj.to_cols_array_2d(),
+            animation_tick,
+            _align_colormap: 0,
+            colormap_min,
+            colormap_max,
+            _struct_pad: [0, 0],
         };
-        queue.write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&uniform));
+        queue.write_buffer(&self.scene_buffer, 0, bytemuck::bytes_of(&uniform));
     }
 }
 

@@ -1,6 +1,6 @@
 use engine_core::SystemContext;
 use engine_net::{BlockDelta, ClientPacket, EntitySnapshot, NetClient, PlayerInput, ServerPacket};
-use engine_world::{BlockPos, WorldMutationQueue};
+use engine_world::{BlockPos, BlockState, VoxelCell, WorldMutationQueue};
 use game::{LocalPlayerId, NetPlayerId, Transform, Velocity};
 use glam::Vec3;
 
@@ -40,9 +40,12 @@ fn apply_block_deltas(ctx: &mut SystemContext<'_>, deltas: Vec<BlockDelta>) {
         return;
     };
     for delta in deltas {
-        queue.set_block(
+        queue.set_voxel(
             BlockPos::new(delta.x, delta.y, delta.z),
-            delta.block,
+            VoxelCell {
+                id: delta.block,
+                state: BlockState(delta.state),
+            },
         );
     }
 }
@@ -97,4 +100,3 @@ fn input_to_packet(input: &engine_input::InputState) -> PlayerInput {
         place_block: input.place_block,
     }
 }
-

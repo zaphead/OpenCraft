@@ -1,6 +1,7 @@
 use glam::IVec3;
 
 use crate::block::{BlockId, BlockPos};
+use crate::voxel::VoxelCell;
 
 const AIR: BlockId = 0;
 const WORLD_MIN: IVec3 = IVec3::new(-512, -512, -512);
@@ -13,7 +14,7 @@ enum OctreeNode {
         children: [Option<Box<OctreeNode>>; 8],
         aggregate: BlockId,
     },
-    Leaf(BlockId),
+    Leaf(VoxelCell),
 }
 
 /// Sparse voxel octree with pointer-based nodes and upward aggregate propagation.
@@ -32,11 +33,15 @@ impl SparseVoxelOctree {
         Self { root: None }
     }
 
-    pub fn get_block(&self, position: BlockPos) -> BlockId {
+    pub fn get_voxel(&self, position: BlockPos) -> VoxelCell {
         let Some(root) = &self.root else {
-            return AIR;
+            return VoxelCell::AIR;
         };
-        get_block_node(root.as_ref(), position, WORLD_MIN, WORLD_SIZE, 0)
+        get_voxel_node(root.as_ref(), position, WORLD_MIN, WORLD_SIZE, 0)
+    }
+
+    pub fn get_block(&self, position: BlockPos) -> BlockId {
+        self.get_voxel(position).id
     }
 
     pub fn is_solid(&self, position: BlockPos) -> bool {
@@ -44,7 +49,16 @@ impl SparseVoxelOctree {
     }
 
     pub fn set_block(&mut self, position: BlockPos, block: BlockId) {
-        if block == AIR {
+        let cell = if block == AIR {
+            VoxelCell::AIR
+        } else {
+            VoxelCell::from_id(block)
+        };
+        self.set_voxel(position, cell);
+    }
+
+    pub fn set_voxel(&mut self, position: BlockPos, cell: VoxelCell) {
+        if cell.id == AIR {
             self.root = remove_block_node(
                 self.root.take(),
                 position,
@@ -59,7 +73,7 @@ impl SparseVoxelOctree {
                     aggregate: AIR,
                 })
             });
-            self.root = Some(set_block_node(root, position, block, WORLD_MIN, WORLD_SIZE, 0));
+            self.root = Some(set_voxel_node(root, position, cell, WORLD_MIN, WORLD_SIZE, 0));
         }
     }
 
@@ -110,43 +124,43 @@ fn child_index(position: IVec3, min: IVec3, size: i32) -> usize {
     index
 }
 
-fn get_block_node(
+fn get_voxel_node(
     node: &OctreeNode,
     position: BlockPos,
     min: IVec3,
     size: i32,
     depth: u8,
-) -> BlockId {
+) -> VoxelCell {
     match node {
-        OctreeNode::Leaf(block) => *block,
+        OctreeNode::Leaf(cell) => *cell,
         OctreeNode::Branch { children, aggregate } => {
             if depth >= MAX_DEPTH || size <= 1 {
-                return *aggregate;
+                return VoxelCell::from_id(*aggregate);
             }
             let index = child_index(position.0, min, size);
             let (child_min, child_size) = child_bounds(min, size, index);
             children[index]
                 .as_ref()
-                .map(|child| get_block_node(child, position, child_min, child_size, depth + 1))
-                .unwrap_or(AIR)
+                .map(|child| get_voxel_node(child, position, child_min, child_size, depth + 1))
+                .unwrap_or(VoxelCell::AIR)
         }
     }
 }
 
-fn set_block_node(
+fn set_voxel_node(
     mut node: Box<OctreeNode>,
     position: BlockPos,
-    block: BlockId,
+    cell: VoxelCell,
     min: IVec3,
     size: i32,
     depth: u8,
 ) -> Box<OctreeNode> {
     if depth >= MAX_DEPTH || size <= 1 {
-        return Box::new(OctreeNode::Leaf(block));
+        return Box::new(OctreeNode::Leaf(cell));
     }
 
     let OctreeNode::Branch { children, .. } = &mut *node else {
-        return Box::new(OctreeNode::Leaf(block));
+        return Box::new(OctreeNode::Leaf(cell));
     };
 
     let index = child_index(position.0, min, size);
@@ -159,10 +173,10 @@ fn set_block_node(
                 aggregate: AIR,
             })
         });
-    children[index] = Some(set_block_node(
+    children[index] = Some(set_voxel_node(
         child,
         position,
-        block,
+        cell,
         child_min,
         child_size,
         depth + 1,
@@ -243,7 +257,7 @@ fn compute_aggregate(children: &[Option<Box<OctreeNode>>; 8]) -> BlockId {
 
 fn node_aggregate(node: &OctreeNode) -> BlockId {
     match node {
-        OctreeNode::Leaf(block) => *block,
+        OctreeNode::Leaf(cell) => cell.id,
         OctreeNode::Branch { aggregate, .. } => *aggregate,
     }
 }
@@ -271,15 +285,15 @@ fn visit_region<F>(
     }
 
     match node {
-        OctreeNode::Leaf(block) => {
-            if *block != AIR && min.x >= region_min.x
+        OctreeNode::Leaf(cell) => {
+            if cell.id != AIR && min.x >= region_min.x
                 && min.y >= region_min.y
                 && min.z >= region_min.z
                 && min.x < region_max.x
                 && min.y < region_max.y
                 && min.z < region_max.z
             {
-                f(BlockPos(min), *block);
+                f(BlockPos(min), cell.id);
             }
         }
         OctreeNode::Branch { children, .. } => {

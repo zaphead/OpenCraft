@@ -10,9 +10,14 @@ fn main() {
     fs::create_dir_all(textures_dir.join("blocks/grass")).expect("mkdir grass");
     fs::create_dir_all(textures_dir.join("blocks/dirt")).expect("mkdir dirt");
     fs::create_dir_all(textures_dir.join("blocks/stone")).expect("mkdir stone");
+    fs::create_dir_all(textures_dir.join("blocks/leaves")).expect("mkdir leaves");
+    fs::create_dir_all(textures_dir.join("colormap")).expect("mkdir colormap");
     fs::create_dir_all(textures_dir.join("layouts")).expect("mkdir layouts");
 
     write_albedo(&textures_dir.join("blocks/grass/albedo.png"), draw_grass_albedo);
+    write_albedo(&textures_dir.join("blocks/grass/overlay.png"), draw_grass_overlay_albedo);
+    write_albedo(&textures_dir.join("blocks/leaves/albedo.png"), draw_leaves_albedo);
+    write_colormap(&textures_dir.join("colormap/grass.png"));
     write_imported_dirt_albedo(&textures_dir);
     write_albedo(
         &textures_dir.join("blocks/stone/albedo.png"),
@@ -243,4 +248,46 @@ fn draw_stone(px: u32, py: u32) -> image::Rgba<u8> {
     let noise = ((px * 5 + py * 3) % 11) as i32 - 5;
     let v = (140 + noise).clamp(90, 180) as u8;
     image::Rgba([v, v, (v as i32 + 4).clamp(90, 185) as u8, 255])
+}
+
+fn draw_grass_overlay_albedo(image: &mut image::RgbaImage) {
+    for face in [
+        CubeFace::Left,
+        CubeFace::Front,
+        CubeFace::Right,
+        CubeFace::Back,
+    ] {
+        let region = face_region(face);
+        fill_region(image, region, |px, py| {
+            if py < 4 {
+                draw_grass_top(px, py)
+            } else {
+                image::Rgba([0, 0, 0, 0])
+            }
+        });
+    }
+}
+
+fn draw_leaves_albedo(image: &mut image::RgbaImage) {
+    for face in CubeFace::ALL {
+        fill_region(image, face_region(face), |px, py| {
+            let noise = ((px * 5 + py * 7) % 5) as i32 - 2;
+            let g = (120 + noise).clamp(90, 150) as u8;
+            let a = if (px + py) % 5 == 0 { 0 } else { 255 };
+            image::Rgba([40, g, 30, a])
+        });
+    }
+}
+
+fn write_colormap(path: &Path) {
+    let mut image = image::RgbaImage::new(256, 1);
+    for x in 0..256 {
+        let t = x as f32 / 255.0;
+        let g = (80.0 + t * 120.0) as u8;
+        image.put_pixel(x, 0, image::Rgba([50, g, 40, 255]));
+    }
+    image
+        .save(path)
+        .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
+    println!("wrote {}", path.display());
 }

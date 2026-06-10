@@ -9,6 +9,8 @@ pub struct BlockDelta {
     pub y: i32,
     pub z: i32,
     pub block: u16,
+    #[serde(default)]
+    pub state: u8,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

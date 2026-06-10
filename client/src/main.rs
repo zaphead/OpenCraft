@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use engine_assets::PackedBlockTextures;
+use engine_assets::ResolvedBlockMaterials;
 use engine_core::{App, Time};
 use engine_input::{apply_mouse_motion, apply_winit_event, InputState};
 use engine_net::NetClient;
@@ -88,7 +88,7 @@ impl ClientApp {
             let presented = self
                 .ecs
                 .resource::<RenderWorld>()
-                .map(|world| world.meshes.len())
+                .map(|world| world.meshes().len())
                 .unwrap_or(0);
             let mut diag = ClientDiagnostics::sample(
                 &self.ecs,
@@ -112,11 +112,11 @@ impl ClientApp {
             return;
         };
         log::info!("creating renderer at {}x{}", size.width, size.height);
-        let Some(packed) = self.ecs.resource::<Arc<PackedBlockTextures>>().cloned() else {
-            log::error!("renderer init failed: PackedBlockTextures resource missing");
+        let Some(materials) = self.ecs.resource::<Arc<ResolvedBlockMaterials>>().cloned() else {
+            log::error!("renderer init failed: ResolvedBlockMaterials resource missing");
             return;
         };
-        let renderer = Renderer::new(window, &packed.atlas);
+        let renderer = Renderer::new(window, &materials);
         self.ecs.insert_resource(ClientRenderer(renderer));
         if let Some(info) = self.ecs.resource_mut::<RenderSurfaceInfo>() {
             info.aspect = size.width as f32 / size.height.max(1) as f32;

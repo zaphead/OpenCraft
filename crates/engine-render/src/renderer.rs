@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
+use engine_assets::{ResolvedBlockMaterials, UvRect};
 use wgpu::SurfaceError;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use engine_assets::TextureAtlas;
-
 use crate::mesh::SolidMesh;
-use crate::pipeline::{GpuMesh, RenderPipeline};
+use crate::pipeline::{GpuMesh, RenderPipelines};
 use crate::world_mesh::RenderScene;
 
 pub struct Renderer {
@@ -18,13 +17,14 @@ pub struct Renderer {
     config: wgpu::SurfaceConfiguration,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
-    pipeline: RenderPipeline,
-    gpu_meshes: Vec<GpuMesh>,
+    pipelines: RenderPipelines,
+    colormap_rect: Option<UvRect>,
+    opaque_meshes: Vec<GpuMesh>,
+    cutout_meshes: Vec<GpuMesh>,
 }
 
 impl Renderer {
-    /// Synchronous renderer setup for use from `ApplicationHandler::resumed`.
-    pub fn new(window: Arc<Window>, atlas: &TextureAtlas) -> Self {
+    pub fn new(window: Arc<Window>, materials: &ResolvedBlockMaterials) -> Self {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -75,7 +75,14 @@ impl Renderer {
         let (depth_texture, depth_view) =
             create_depth_texture(&device, config.width, config.height);
 
-        let pipeline = RenderPipeline::new(&device, &queue, surface_format, atlas);
+        let colormap_rect = materials.colormap_atlas_rect;
+        let pipelines = RenderPipelines::new(
+            &device,
+            &queue,
+            surface_format,
+            &materials.atlas,
+            colormap_rect,
+        );
 
         Self {
             window,
@@ -85,8 +92,10 @@ impl Renderer {
             config,
             depth_texture,
             depth_view,
-            pipeline,
-            gpu_meshes: Vec::new(),
+            pipelines,
+            colormap_rect,
+            opaque_meshes: Vec::new(),
+            cutout_meshes: Vec::new(),
         }
     }
 
@@ -107,11 +116,17 @@ impl Renderer {
         self.config.width as f32 / self.config.height as f32
     }
 
-    pub fn upload_meshes(&mut self, meshes: &[SolidMesh]) {
-        self.gpu_meshes = meshes
-            .iter()
-            .map(|mesh| GpuMesh::from_mesh(&self.device, mesh))
-            .collect();
+    pub fn upload_meshes(&mut self, opaque: &SolidMesh, cutout: &SolidMesh) {
+        self.opaque_meshes = if opaque.vertices.is_empty() {
+            Vec::new()
+        } else {
+            vec![GpuMesh::from_mesh(&self.device, opaque)]
+        };
+        self.cutout_meshes = if cutout.vertices.is_empty() {
+            Vec::new()
+        } else {
+            vec![GpuMesh::from_mesh(&self.device, cutout)]
+        };
     }
 
     pub fn render(&mut self, scene: &RenderScene) -> Result<(), SurfaceError> {
@@ -120,8 +135,12 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.pipeline
-            .update_camera(&self.queue, scene.camera.view_projection());
+        self.pipelines.update_scene(
+            &self.queue,
+            scene.camera.view_projection(),
+            scene.animation_tick,
+            self.colormap_rect,
+        );
 
         let mut encoder = self
             .device
@@ -131,7 +150,29 @@ impl Renderer {
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("render_pass"),
+                label: Some("depth_pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipelines.depth);
+            pass.set_bind_group(0, &self.pipelines.scene_bind_group, &[]);
+            pass.set_bind_group(1, &self.pipelines.atlas_bind_group, &[]);
+            draw_meshes(&mut pass, &self.opaque_meshes);
+            draw_meshes(&mut pass, &self.cutout_meshes);
+        }
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("opaque_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -148,7 +189,7 @@ impl Renderer {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
@@ -156,22 +197,52 @@ impl Renderer {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
+            pass.set_pipeline(&self.pipelines.opaque);
+            pass.set_bind_group(0, &self.pipelines.scene_bind_group, &[]);
+            pass.set_bind_group(1, &self.pipelines.atlas_bind_group, &[]);
+            draw_meshes(&mut pass, &self.opaque_meshes);
+        }
 
-            pass.set_pipeline(&self.pipeline.pipeline);
-            pass.set_bind_group(0, &self.pipeline.camera_bind_group, &[]);
-            pass.set_bind_group(1, &self.pipeline.atlas_bind_group, &[]);
-
-            for mesh in &self.gpu_meshes {
-                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-            }
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("cutout_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.pipelines.cutout);
+            pass.set_bind_group(0, &self.pipelines.scene_bind_group, &[]);
+            pass.set_bind_group(1, &self.pipelines.atlas_bind_group, &[]);
+            draw_meshes(&mut pass, &self.cutout_meshes);
         }
 
         self.queue.submit(Some(encoder.finish()));
         self.window.pre_present_notify();
         output.present();
         Ok(())
+    }
+}
+
+fn draw_meshes(pass: &mut wgpu::RenderPass<'_>, meshes: &[GpuMesh]) {
+    for mesh in meshes {
+        pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+        pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..mesh.index_count, 0, 0..1);
     }
 }
 

@@ -44,8 +44,9 @@ impl ClientDiagnostics {
         let (mesh_count, vertex_count) = app
             .resource::<RenderWorld>()
             .map(|world| {
-                let count = world.meshes.len();
-                let vertices = world.meshes.iter().map(|m| m.vertices.len()).sum();
+                let meshes = world.meshes();
+                let count = meshes.len();
+                let vertices = meshes.iter().map(|m| m.vertices.len()).sum();
                 (count, vertices)
             })
             .unwrap_or((last_present_meshes, 0));

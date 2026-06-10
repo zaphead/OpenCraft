@@ -28,12 +28,12 @@ fn headless_pipeline_builds_terrain_and_meshes() {
     let block = world.get_block(origin);
     let solid_origin = registry.is_solid(block);
     let render_world = app.resource::<RenderWorld>().expect("render world");
-    let meshes = &render_world.meshes;
+    let meshes = render_world.meshes();
     let vertex_count: usize = meshes.iter().map(|m| m.vertices.len()).sum();
 
     assert!(terrain_done);
     assert!(initialized);
     assert!(solid_origin);
-    assert!(meshes.len() >= 60, "expected ~64 grass chunks, got {}", meshes.len());
+    assert!(!meshes.is_empty(), "expected merged terrain meshes");
     assert!(vertex_count > 0);
 }

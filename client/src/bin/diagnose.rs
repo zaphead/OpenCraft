@@ -15,7 +15,7 @@ fn main() {
 
         last_mesh_count = app
             .resource::<engine_render::RenderWorld>()
-            .map(|world| world.meshes.len())
+            .map(|world| world.meshes().len())
             .unwrap_or(0);
 
         if frame == 1 || frame % 60 == 0 || frame == 300 {

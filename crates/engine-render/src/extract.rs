@@ -5,8 +5,24 @@ use crate::world_mesh::ChunkMeshCache;
 #[derive(Debug, Default)]
 pub struct RenderWorld {
     pub camera: Camera,
-    pub meshes: Vec<SolidMesh>,
+    pub opaque: SolidMesh,
+    pub cutout: SolidMesh,
+    pub animation_tick: u32,
     pub ready: bool,
+}
+
+impl RenderWorld {
+    /// Legacy helper for tests counting all vertices.
+    pub fn meshes(&self) -> Vec<SolidMesh> {
+        let mut out = Vec::new();
+        if !self.opaque.vertices.is_empty() {
+            out.push(self.opaque.clone());
+        }
+        if !self.cutout.vertices.is_empty() {
+            out.push(self.cutout.clone());
+        }
+        out
+    }
 }
 
 #[derive(Default)]
@@ -14,7 +30,6 @@ pub struct RenderExtractState {
     pub mesh_cache: ChunkMeshCache,
     pub world_mesh_queue: Vec<glam::IVec3>,
     pub terrain_bootstrapped: bool,
-    /// Cleared after the first full rebuild following terrain bootstrap.
     pub pending_full_rebuild: bool,
 }
 

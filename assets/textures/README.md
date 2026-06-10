@@ -20,6 +20,15 @@ Regenerate placeholder art:
 cargo run -p engine-assets --bin generate-block-textures
 ```
 
+Import from a Minecraft resource pack (curated manifest):
+
+```bash
+cargo run -p engine-assets --bin import-texture-pack -- \
+  --pack /path/to/pack.zip
+```
+
+See [`import/manifest.toml`](../import/manifest.toml) for block → model mappings.
+
 ## `cube_v1` albedo format
 
 - **Size:** 64×32 pixels, RGBA8 PNG

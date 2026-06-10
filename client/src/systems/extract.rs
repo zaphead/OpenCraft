@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use engine_assets::{BlockRegistry, PackedBlockTextures};
-use engine_core::SystemContext;
+use engine_assets::{BlockRegistry, ResolvedBlockMaterials};
+use engine_core::{SystemContext, Time};
 use engine_render::{Camera, RenderExtractState, RenderSurfaceInfo, RenderWorld};
-use engine_world::{BlockChanged, SparseVoxelOctree};
+use engine_world::{BiomeMap, SparseVoxelOctree, VoxelChanged};
 use game::WorldInitialized;
 
 use crate::mesh_pipeline::{bootstrap_terrain_meshes, rebuild_budget_for_extract, rebuild_chunk_meshes};
@@ -13,8 +13,7 @@ pub fn sync_block_changes_system(ctx: &mut SystemContext<'_>) {
     let Some(state) = ctx.resources.get_mut::<RenderExtractState>() else {
         return;
     };
-    let changes: Vec<BlockChanged> = ctx.events.drain::<BlockChanged>();
-    // Bulk terrain fill emits one event per block; initial mesh bootstrap handles that.
+    let changes: Vec<VoxelChanged> = ctx.events.drain::<VoxelChanged>();
     if changes.len() > 64 {
         return;
     }
@@ -45,31 +44,47 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
         .map(|info| info.aspect)
         .unwrap_or(16.0 / 9.0);
     let camera = extract_camera(ctx, aspect);
+    let animation_tick = ctx
+        .resources
+        .get::<Time>()
+        .map(|time| (time.elapsed * 1000.0) as u32)
+        .unwrap_or(0);
 
-    let Some(packed) = ctx.resources.get::<Arc<PackedBlockTextures>>().cloned() else {
+    let Some(materials) = ctx.resources.get::<Arc<ResolvedBlockMaterials>>().cloned() else {
         return;
     };
-    let meshes = ctx
+
+    let biome = ctx
         .resources
-        .with_triple::<SparseVoxelOctree, BlockRegistry, RenderExtractState, _>(|world, registry, state| {
-            if state.mesh_cache.has_dirty_chunks() {
-                let budget = rebuild_budget_for_extract(state);
-                rebuild_chunk_meshes(
-                    state,
-                    world,
-                    registry,
-                    &packed.materials,
-                    camera.position,
-                    budget,
-                );
-            }
-            state.mesh_cache.all_meshes()
-        })
+        .get::<BiomeMap>()
+        .cloned()
+        .unwrap_or_default();
+    let buckets = ctx
+        .resources
+        .with_triple::<SparseVoxelOctree, BlockRegistry, RenderExtractState, _>(
+            |world, registry, state| {
+                if state.mesh_cache.has_dirty_chunks() {
+                    let budget = rebuild_budget_for_extract(state);
+                    rebuild_chunk_meshes(
+                        state,
+                        world,
+                        registry,
+                        &materials,
+                        &biome,
+                        camera.position,
+                        budget,
+                    );
+                }
+                state.mesh_cache.merged_buckets()
+            },
+        )
         .unwrap_or_default();
 
     if let Some(render_world) = ctx.resources.get_mut::<RenderWorld>() {
         render_world.camera = camera;
-        render_world.meshes = meshes;
+        render_world.opaque = buckets.opaque;
+        render_world.cutout = buckets.cutout;
+        render_world.animation_tick = animation_tick;
         render_world.ready = true;
     }
 }

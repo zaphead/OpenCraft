@@ -1,6 +1,6 @@
 use engine_core::SystemContext;
 use engine_net::{BlockDelta, ClientPacket, EntitySnapshot, NetServer, PlayerInput, ServerPacket};
-use engine_world::BlockChanged;
+use engine_world::VoxelChanged;
 use game::{GameplayInput, NetPlayerId, PlayerInputs, Transform, spawn_net_player};
 
 pub struct ServerNet(pub NetServer);
@@ -32,13 +32,14 @@ pub fn server_net_broadcast_system(ctx: &mut SystemContext<'_>) {
 
     let block_deltas: Vec<BlockDelta> = ctx
         .events
-        .drain::<BlockChanged>()
+        .drain::<VoxelChanged>()
         .into_iter()
         .map(|change| BlockDelta {
             x: change.position.0.x,
             y: change.position.0.y,
             z: change.position.0.z,
-            block: change.new_block,
+            block: change.new_cell.id,
+            state: change.new_cell.state.0,
         })
         .collect();
 

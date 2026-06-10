@@ -1,0 +1,6 @@
+draw = "cutout"
+id = 4
+layout = "cube_v1"
+name = "leaves"
+solid = true
+tint = "biome_foliage"

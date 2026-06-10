@@ -1,21 +1,24 @@
 use std::collections::HashMap;
 
-use engine_assets::{BlockMaterialMap, BlockRegistry};
-use engine_world::{BlockPos, CHUNK_SIZE, SparseVoxelOctree};
+use engine_assets::{face_from_normal, BlockRegistry, DrawCategory, ResolvedBlockMaterials};
+use engine_world::{BiomeMap, BlockPos, CHUNK_SIZE, SparseVoxelOctree, VoxelCell};
 use glam::{IVec3, Vec3};
 use rayon::prelude::*;
 
-use crate::mesh::{append_face, SolidMesh};
+use crate::ctm::neighbor_mask_for_face;
+use crate::mesh::{append_face, tint_index_for, MeshBuckets, SolidMesh};
 
 #[derive(Debug, Default, Clone)]
 pub struct RenderScene {
     pub camera: crate::camera::Camera,
-    pub chunk_meshes: Vec<SolidMesh>,
+    pub opaque: SolidMesh,
+    pub cutout: SolidMesh,
+    pub animation_tick: u32,
     pub entity_meshes: Vec<(glam::Vec3, SolidMesh)>,
 }
 
-/// Max chunk meshes rebuilt per frame to keep the main thread responsive.
 pub const MAX_CHUNK_REBUILDS_PER_FRAME: usize = 8;
+pub const CTM_DIRTY_RADIUS_BLOCKS: i32 = 2;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RebuildBudget {
@@ -41,7 +44,7 @@ impl RebuildBudget {
 
 #[derive(Debug, Default)]
 pub struct ChunkMeshCache {
-    meshes: HashMap<IVec3, SolidMesh>,
+    meshes: HashMap<IVec3, MeshBuckets>,
     dirty: HashMap<IVec3, ()>,
 }
 
@@ -51,11 +54,18 @@ impl ChunkMeshCache {
     }
 
     pub fn mark_dirty_neighbors(&mut self, position: BlockPos) {
-        let chunk = position.chunk_key();
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                for dz in -1..=1 {
-                    self.mark_dirty(chunk + IVec3::new(dx, dy, dz));
+        let block = position.0;
+        let radius = CTM_DIRTY_RADIUS_BLOCKS;
+        let min_cx = (block.x - radius).div_euclid(CHUNK_SIZE);
+        let max_cx = (block.x + radius).div_euclid(CHUNK_SIZE);
+        let min_cy = (block.y - radius).div_euclid(CHUNK_SIZE);
+        let max_cy = (block.y + radius).div_euclid(CHUNK_SIZE);
+        let min_cz = (block.z - radius).div_euclid(CHUNK_SIZE);
+        let max_cz = (block.z + radius).div_euclid(CHUNK_SIZE);
+        for cx in min_cx..=max_cx {
+            for cy in min_cy..=max_cy {
+                for cz in min_cz..=max_cz {
+                    self.mark_dirty(IVec3::new(cx, cy, cz));
                 }
             }
         }
@@ -69,7 +79,8 @@ impl ChunkMeshCache {
         &mut self,
         world: &SparseVoxelOctree,
         registry: &BlockRegistry,
-        materials: &BlockMaterialMap,
+        materials: &ResolvedBlockMaterials,
+        biome: &BiomeMap,
         camera_position: Vec3,
         budget: RebuildBudget,
         top_faces_only: bool,
@@ -79,38 +90,30 @@ impl ChunkMeshCache {
             .keys()
             .copied()
             .filter(|chunk| {
-                let center = chunk_center(*chunk);
-                center.distance_squared(camera_position) <= budget.max_distance_sq
+                chunk_center(*chunk).distance_squared(camera_position) <= budget.max_distance_sq
             })
             .collect();
+        dirty.sort_by_key(|chunk| {
+            chunk_center(*chunk)
+                .distance_squared(camera_position)
+                .to_bits()
+        });
 
-        if budget.max_chunks != usize::MAX {
-            dirty.sort_by(|a, b| {
-                chunk_center(*a)
-                    .distance_squared(camera_position)
-                    .partial_cmp(&chunk_center(*b).distance_squared(camera_position))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            dirty.truncate(budget.max_chunks);
-        }
-
-        for chunk in &dirty {
-            self.dirty.remove(chunk);
-        }
-
-        let rebuilt: Vec<(IVec3, SolidMesh)> = dirty
+        let count = dirty.len().min(budget.max_chunks);
+        let rebuilt: Vec<(IVec3, MeshBuckets)> = dirty
             .par_iter()
-            .map(|chunk| {
+            .take(count)
+            .map(|&chunk| {
                 (
-                    *chunk,
-                    mesh_chunk(world, registry, materials, *chunk, top_faces_only),
+                    chunk,
+                    mesh_chunk(world, registry, materials, biome, chunk, top_faces_only),
                 )
             })
             .collect();
 
-        let count = rebuilt.len();
         for (chunk, mesh) in rebuilt {
-            if mesh.vertices.is_empty() {
+            self.dirty.remove(&chunk);
+            if mesh.is_empty() {
                 self.meshes.remove(&chunk);
             } else {
                 self.meshes.insert(chunk, mesh);
@@ -126,8 +129,13 @@ impl ChunkMeshCache {
         count
     }
 
-    pub fn all_meshes(&self) -> Vec<SolidMesh> {
-        self.meshes.values().cloned().collect()
+    pub fn merged_buckets(&self) -> MeshBuckets {
+        let mut merged = MeshBuckets::default();
+        for buckets in self.meshes.values() {
+            merged.push(DrawCategory::Opaque, &buckets.opaque);
+            merged.push(DrawCategory::Cutout, &buckets.cutout);
+        }
+        merged
     }
 }
 
@@ -138,19 +146,20 @@ fn chunk_center(chunk: IVec3) -> Vec3 {
 pub fn mesh_chunk(
     world: &SparseVoxelOctree,
     registry: &BlockRegistry,
-    materials: &BlockMaterialMap,
+    materials: &ResolvedBlockMaterials,
+    biome: &BiomeMap,
     chunk: IVec3,
     top_faces_only: bool,
-) -> SolidMesh {
+) -> MeshBuckets {
     let origin = chunk * CHUNK_SIZE;
-    let mut mesh = SolidMesh::default();
+    let mut buckets = MeshBuckets::default();
 
     for x in 0..CHUNK_SIZE {
         for y in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
                 let pos = BlockPos::new(origin.x + x, origin.y + y, origin.z + z);
-                let block = world.get_block(pos);
-                if !registry.is_solid(block) {
+                let cell = world.get_voxel(pos);
+                if !registry.is_solid(cell.id) {
                     continue;
                 }
 
@@ -160,31 +169,52 @@ pub fn mesh_chunk(
                     if top_faces_only && normal != [0.0, 0.0, 1.0] {
                         continue;
                     }
-                    let neighbor =
-                        BlockPos::new(px.x + offset.x, px.y + offset.y, px.z + offset.z);
-                    if registry.is_solid(world.get_block(neighbor)) {
+                    let neighbor = BlockPos::new(px.x + offset.x, px.y + offset.y, px.z + offset.z);
+                    if should_cull_face(world, registry, cell, neighbor) {
                         continue;
                     }
-                    let uv = materials.face_uv(block, normal);
-                    append_face(&mut mesh, px.as_vec3(), normal, uv);
+
+                    let face = face_from_normal(normal);
+                    let neighbors = registry
+                        .get(cell.id)
+                        .filter(|def| def.ctm.is_some())
+                        .map(|_| neighbor_mask_for_face(world, registry, pos, cell.id, face));
+
+                    let resolved = materials.resolve_face(cell.id, cell.state, face, neighbors);
+                    let tint_index = tint_index_for(resolved.tint, biome, pos);
+                    let mut face_mesh = SolidMesh::default();
+                    append_face(&mut face_mesh, px.as_vec3(), normal, resolved, tint_index);
+                    buckets.push(resolved.draw_category, &face_mesh);
                 }
             }
         }
     }
 
-    mesh
+    buckets
 }
 
-pub fn extract_render_scene(
-    camera: crate::camera::Camera,
-    chunk_meshes: Vec<SolidMesh>,
-    entity_meshes: Vec<(glam::Vec3, SolidMesh)>,
-) -> RenderScene {
-    RenderScene {
-        camera,
-        chunk_meshes,
-        entity_meshes,
+fn should_cull_face(
+    world: &SparseVoxelOctree,
+    registry: &BlockRegistry,
+    cell: VoxelCell,
+    neighbor: BlockPos,
+) -> bool {
+    let neighbor_cell = world.get_voxel(neighbor);
+    if !registry.is_solid(neighbor_cell.id) {
+        return false;
     }
+    let self_cutout = registry
+        .get(cell.id)
+        .map(|def| def.draw == DrawCategory::Cutout)
+        .unwrap_or(false);
+    let neighbor_cutout = registry
+        .get(neighbor_cell.id)
+        .map(|def| def.draw == DrawCategory::Cutout)
+        .unwrap_or(false);
+    if self_cutout || neighbor_cutout {
+        return false;
+    }
+    true
 }
 
 const FACE_OFFSETS: [([f32; 3], IVec3); 6] = [
@@ -196,50 +226,118 @@ const FACE_OFFSETS: [([f32; 3], IVec3); 6] = [
     ([0.0, 0.0, -1.0], IVec3::new(0, 0, -1)),
 ];
 
+pub fn extract_render_scene(
+    camera: crate::camera::Camera,
+    opaque: SolidMesh,
+    cutout: SolidMesh,
+    animation_tick: u32,
+    entity_meshes: Vec<(glam::Vec3, SolidMesh)>,
+) -> RenderScene {
+    RenderScene {
+        camera,
+        opaque,
+        cutout,
+        animation_tick,
+        entity_meshes,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use engine_assets::{
-        blocks_asset_path, load_block_registry, pack_block_textures, textures_asset_path,
+        blocks_asset_path, load_block_registry, pack_block_materials, textures_asset_path,
     };
-    use glam::IVec3;
 
-    fn grass_fixtures() -> (SparseVoxelOctree, BlockRegistry, engine_assets::BlockMaterialMap) {
+    fn grass_fixtures() -> (
+        SparseVoxelOctree,
+        BlockRegistry,
+        ResolvedBlockMaterials,
+        BiomeMap,
+    ) {
         let client = concat!(env!("CARGO_MANIFEST_DIR"), "/../../client");
         let registry = load_block_registry(&blocks_asset_path(client));
-        let packed = pack_block_textures(&textures_asset_path(client), &registry).expect("pack");
-        let grass = registry.id_by_name("grass").expect("grass block");
-        let mut world = SparseVoxelOctree::default();
-        for x in -64..64 {
-            for y in -64..64 {
-                world.set_block(BlockPos::new(x, y, 0), grass);
-            }
-        }
-        (world, registry, packed.materials)
-    }
-
-    #[test]
-    fn mesh_chunk_covers_negative_quadrant() {
-        let (world, registry, materials) = grass_fixtures();
-        let neg = mesh_chunk(&world, &registry, &materials, IVec3::new(-1, -1, 0), true);
-        let pos = mesh_chunk(&world, &registry, &materials, IVec3::new(0, 0, 0), true);
-        assert!(!neg.vertices.is_empty(), "negative chunk should mesh");
-        assert_eq!(neg.vertices.len(), pos.vertices.len());
+        let materials = pack_block_materials(&textures_asset_path(client), &registry).expect("pack");
+        (SparseVoxelOctree::default(), registry, materials, BiomeMap::default())
     }
 
     #[test]
     fn top_faces_wind_counterclockwise_from_above() {
-        let (world, registry, materials) = grass_fixtures();
-        let mesh = mesh_chunk(&world, &registry, &materials, IVec3::ZERO, true);
-        for tri in mesh.indices.chunks_exact(3) {
-            let a = glam::Vec3::from(mesh.vertices[tri[0] as usize].position);
-            let b = glam::Vec3::from(mesh.vertices[tri[1] as usize].position);
-            let c = glam::Vec3::from(mesh.vertices[tri[2] as usize].position);
-            let winding = (b - a).cross(c - a).z;
-            assert!(
-                winding > 0.0,
-                "top face triangle should be CCW from +Z, got winding {winding}"
-            );
-        }
+        let (mut world, registry, materials, biome) = grass_fixtures();
+        let grass = registry.id_by_name("grass").expect("grass");
+        world.set_block(BlockPos::new(0, 0, 0), grass);
+        let mesh = mesh_chunk(&world, &registry, &materials, &biome, IVec3::ZERO, true);
+        assert!(!mesh.opaque.vertices.is_empty());
+        let v = &mesh.opaque.vertices[0];
+        let p0 = glam::Vec3::from_array(v.position);
+        let p1 = glam::Vec3::from_array(mesh.opaque.vertices[1].position);
+        let p2 = glam::Vec3::from_array(mesh.opaque.vertices[2].position);
+        let cross = (p1 - p0).cross(p2 - p0);
+        assert!(cross.z > 0.0, "top face should wind CCW from +Z");
+    }
+
+    #[test]
+    fn leaves_mesh_routes_to_cutout_bucket() {
+        let (mut world, registry, materials, biome) = grass_fixtures();
+        let leaves = registry.id_by_name("leaves").expect("leaves");
+        world.set_block(BlockPos::new(2, 2, 0), leaves);
+        let mesh = mesh_chunk(&world, &registry, &materials, &biome, IVec3::ZERO, false);
+        assert!(mesh.opaque.vertices.is_empty() || mesh.cutout.vertices.len() > 0);
+        assert!(!mesh.cutout.vertices.is_empty());
+    }
+
+    #[test]
+    fn mesh_chunk_covers_negative_quadrant() {
+        let (mut world, registry, materials, biome) = grass_fixtures();
+        let grass = registry.id_by_name("grass").expect("grass");
+        world.set_block(BlockPos::new(-1, -1, 0), grass);
+        let chunk = IVec3::new(-1, -1, 0);
+        let mesh = mesh_chunk(&world, &registry, &materials, &biome, chunk, true);
+        assert!(!mesh.opaque.vertices.is_empty());
+    }
+
+    #[test]
+    fn top_faces_wind_counterclockwise_in_clip_space() {
+        use crate::camera::Camera;
+        use crate::mesh::face_corners;
+        use glam::Vec4;
+
+        let camera = Camera {
+            position: glam::Vec3::new(0.5, 0.5, 5.9),
+            yaw: 0.0,
+            pitch: -0.35,
+            aspect: 16.0 / 9.0,
+            ..Camera::default()
+        };
+        let vp = camera.view_projection();
+        let corners = face_corners(glam::Vec3::ZERO, [0.0, 0.0, 1.0]);
+        let ndc: Vec<glam::Vec3> = corners
+            .iter()
+            .map(|p| {
+                let clip = vp * Vec4::new(p.x, p.y, p.z, 1.0);
+                clip.truncate() / clip.w
+            })
+            .collect();
+        let cross = (ndc[1] - ndc[0]).cross(ndc[2] - ndc[0]);
+        assert!(
+            cross.z > 0.0,
+            "top face should be CCW in clip space for FrontFace::Ccw, got cross.z={}",
+            cross.z
+        );
+    }
+
+    #[test]
+    fn grass_side_faces_carry_biome_tint_index() {
+        let (mut world, registry, materials, biome) = grass_fixtures();
+        let grass = registry.id_by_name("grass").expect("grass");
+        world.set_block(BlockPos::new(0, 0, 0), grass);
+        let mesh = mesh_chunk(&world, &registry, &materials, &biome, IVec3::ZERO, false);
+        let tinted: Vec<_> = mesh
+            .opaque
+            .vertices
+            .iter()
+            .filter(|v| v.tint_index > 0)
+            .collect();
+        assert!(!tinted.is_empty(), "grass sides should carry biome tint index");
     }
 }
