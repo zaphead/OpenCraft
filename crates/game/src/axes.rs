@@ -3,6 +3,18 @@ use glam::Vec3;
 /// World up axis (Z-up convention).
 pub const UP: Vec3 = Vec3::Z;
 
+/// Wrap radians to (−π, π].
+pub fn wrap_angle(radians: f32) -> f32 {
+    let two_pi = std::f32::consts::TAU;
+    let mut angle = radians % two_pi;
+    if angle <= -std::f32::consts::PI {
+        angle += two_pi;
+    } else if angle > std::f32::consts::PI {
+        angle -= two_pi;
+    }
+    angle
+}
+
 /// Horizontal forward on the XY plane from yaw (radians). Yaw 0 → +Y.
 pub fn horizontal_forward(yaw: f32) -> Vec3 {
     let (sy, cy) = yaw.sin_cos();
@@ -25,8 +37,21 @@ pub fn view_forward(yaw: f32, pitch: f32) -> Vec3 {
 /// Survival player AABB half-extents (Z-up, 2 blocks tall).
 pub const PLAYER_HALF_EXTENTS: Vec3 = Vec3::new(0.28, 0.28, 0.95);
 
-/// Eye offset above the player collider center (matches survival camera).
-pub const PLAYER_EYE_OFFSET_Z: f32 = 0.62;
+/// Steve eye line from feet (hip 24px + 6px into the 8px head, MC model pixels).
+const STEVE_EYE_HEIGHT_FROM_FEET: f32 = 30.0 / 16.0;
+
+/// Eye offset above the player collider center (matches Steve model + survival camera).
+pub const PLAYER_EYE_OFFSET_Z: f32 = STEVE_EYE_HEIGHT_FROM_FEET - PLAYER_HALF_EXTENTS.z;
+
+/// Shifts first-person view slightly toward the chest (horizontal, from collider center).
+pub const PLAYER_VIEW_FORWARD_OFFSET: f32 = 0.26;
+
+/// Survival camera / crosshair origin (eye height, nudged forward to show the torso).
+pub fn player_view_position(collider_center: Vec3, yaw: f32) -> Vec3 {
+    collider_center
+        + Vec3::Z * PLAYER_EYE_OFFSET_Z
+        + horizontal_forward(yaw) * PLAYER_VIEW_FORWARD_OFFSET
+}
 
 /// Offset below collider center for grounded checks.
 pub fn grounded_probe_offset(half_height: f32) -> Vec3 {

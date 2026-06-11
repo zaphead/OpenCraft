@@ -30,6 +30,7 @@ pub struct RenderPipelines {
     pub particles: ParticlePipeline,
     pub scene_bind_group: wgpu::BindGroup,
     pub atlas_bind_group: wgpu::BindGroup,
+    scene_bind_group_layout: wgpu::BindGroupLayout,
     scene_buffer: wgpu::Buffer,
     _atlas_texture: wgpu::Texture,
 }
@@ -333,9 +334,14 @@ impl RenderPipelines {
             particles,
             scene_bind_group,
             atlas_bind_group,
+            scene_bind_group_layout,
             scene_buffer,
             _atlas_texture: atlas_texture,
         }
+    }
+
+    pub fn scene_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.scene_bind_group_layout
     }
 
     pub fn update_scene(

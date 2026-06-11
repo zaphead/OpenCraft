@@ -6,6 +6,7 @@ use crate::lighting::LightingSnapshot;
 use crate::mesh::SolidMesh;
 use crate::mining_overlay::MiningOverlayMesh;
 use crate::particles::ParticleMesh;
+use crate::humanoid_pose::PlayerRender;
 use crate::world_mesh::ChunkMeshCache;
 
 #[derive(Debug, Clone)]
@@ -28,6 +29,7 @@ pub struct RenderWorld {
     /// Global UI scale from client settings (HUD, crosshair, menus).
     pub gui_scale: f32,
     pub gui: GuiFrame,
+    pub player: Option<PlayerRender>,
 }
 
 impl Default for RenderWorld {
@@ -45,6 +47,7 @@ impl Default for RenderWorld {
             ready: false,
             gui_scale: 4.0,
             gui: GuiFrame::default(),
+            player: None,
         }
     }
 }

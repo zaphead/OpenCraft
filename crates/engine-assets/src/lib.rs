@@ -11,6 +11,7 @@ mod material;
 mod mining_atlas;
 mod poll;
 mod server;
+mod skin;
 
 pub use atlas::{textures_asset_path, tile_uv_rect, TextureAtlas, UvRect, DEFAULT_GRID, DEFAULT_TILE_SIZE};
 pub use environment::{environment_asset_path, load_environment_textures, EnvironmentTextures};
@@ -32,4 +33,5 @@ pub use material::{
     ResolvedFace, TintMode,
 };
 pub use poll::poll_assets_system;
+pub use skin::{load_player_skin, player_skin_path, PlayerSkin};
 pub use server::{assets_dir, blocks_asset_path, AssetServer, Handle, LoadState};

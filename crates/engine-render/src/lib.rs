@@ -11,6 +11,9 @@ mod mesh;
 mod mining_overlay;
 mod outline;
 mod particles;
+mod humanoid_pose;
+mod player_model;
+mod player_pipeline;
 mod pipeline;
 mod post;
 mod render_passes;
@@ -26,6 +29,15 @@ pub use extract::{MiningOverlay, RenderExtractState, RenderSurfaceInfo, RenderWo
 pub use lighting::LightingSnapshot;
 pub use mining_overlay::{build_mining_overlay_mesh, MiningOverlayMesh, MiningOverlayVertex};
 pub use particles::{ParticleMesh, ParticlePipeline, ParticleSystem, ParticleVertex};
+pub use humanoid_pose::{
+    humanoid_pose_from_animation, part_local_matrix, HumanoidPose, PlayerAnimationParams,
+    PlayerRender,
+};
+pub use player_model::{
+    build_humanoid_model_parts, build_player_model_mesh, humanoid_part_mask_without_head,
+    HumanoidModelParts, HUMANOID_PART_HEAD,
+};
+pub use player_pipeline::PlayerPipeline;
 pub use mesh::{append_face, MeshBuckets, MeshVertex, SolidMesh, VERTEX_FLAG_OVERLAY};
 pub use renderer::Renderer;
 pub use world_mesh::{

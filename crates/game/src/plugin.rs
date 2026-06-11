@@ -3,7 +3,8 @@ use engine_core::{App, Stage};
 use crate::systems::{
     block_interaction_system, block_mining_system, day_night_system,
     flush_world_mutations_system, generate_terrain_system, held_tool_select_system,
-    player_look_system, player_locomotion_system, spawn_local_player_system,
+    player_animation_system, player_look_system, player_locomotion_system,
+    spawn_local_player_system,
     spawn_network_player_system,
 };
 
@@ -24,6 +25,7 @@ pub fn register_player_look_system(app: &mut App) {
 
 pub fn register_player_systems(app: &mut App) {
     app.add_system(Stage::Physics, player_locomotion_system);
+    app.add_system(Stage::Physics, player_animation_system);
 }
 
 pub fn register_authoritative_block_system(app: &mut App) {

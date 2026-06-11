@@ -8,6 +8,7 @@ use rayon::prelude::*;
 use crate::ctm::neighbor_mask_for_face;
 use crate::extract::MiningOverlay;
 use crate::particles::ParticleMesh;
+use crate::humanoid_pose::PlayerRender;
 use crate::mesh::{append_face, tint_index_for, MeshBuckets, SolidMesh};
 
 #[derive(Debug, Clone)]
@@ -16,11 +17,11 @@ pub struct RenderScene {
     pub opaque: SolidMesh,
     pub cutout: SolidMesh,
     pub animation_tick: u32,
-    pub entity_meshes: Vec<(glam::Vec3, SolidMesh)>,
     pub target_block: Option<BlockPos>,
     pub mining_overlay: Option<MiningOverlay>,
     pub particles: ParticleMesh,
     pub lighting: crate::lighting::LightingSnapshot,
+    pub player: Option<PlayerRender>,
 }
 
 impl Default for RenderScene {
@@ -30,11 +31,11 @@ impl Default for RenderScene {
             opaque: SolidMesh::default(),
             cutout: SolidMesh::default(),
             animation_tick: 0,
-            entity_meshes: Vec::new(),
             target_block: None,
             mining_overlay: None,
             particles: ParticleMesh::default(),
             lighting: crate::lighting::LightingSnapshot::default(),
+            player: None,
         }
     }
 }
@@ -273,22 +274,22 @@ pub fn extract_render_scene(
     opaque: SolidMesh,
     cutout: SolidMesh,
     animation_tick: u32,
-    entity_meshes: Vec<(glam::Vec3, SolidMesh)>,
     target_block: Option<BlockPos>,
     mining_overlay: Option<MiningOverlay>,
     particles: ParticleMesh,
     lighting: crate::lighting::LightingSnapshot,
+    player: Option<PlayerRender>,
 ) -> RenderScene {
     RenderScene {
         camera,
         opaque,
         cutout,
         animation_tick,
-        entity_meshes,
         target_block,
         mining_overlay,
         particles,
         lighting,
+        player,
     }
 }
 

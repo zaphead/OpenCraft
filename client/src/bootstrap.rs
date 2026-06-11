@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use engine_assets::{
     blocks_asset_path, load_block_registry, load_environment_textures, load_gui_textures,
-    load_tool_registry, pack_block_materials, textures_asset_path, tools_asset_path, AssetServer,
+    load_player_skin, load_tool_registry, pack_block_materials, textures_asset_path,
+    tools_asset_path, AssetServer,
 };
 use engine_core::App;
 use engine_input::InputState;
@@ -66,6 +67,7 @@ pub fn bootstrap_client_resources(app: &mut App, manifest_dir: &str) {
     app.insert_resource(Arc::new(packed));
     app.insert_resource(Arc::new(load_environment_textures(manifest_dir)));
     app.insert_resource(Arc::new(load_gui_textures(manifest_dir)));
+    app.insert_resource(Arc::new(load_player_skin(manifest_dir)));
 }
 
 /// Shared client ECS bootstrap for the game binary, diagnostics, and tests.

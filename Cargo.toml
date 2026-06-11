@@ -38,3 +38,6 @@ rcgen = "0.13"
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time", "net", "io-util"] }
 crossbeam-channel = "0.5"
 rayon = "1.10"
+
+[patch.crates-io]
+block = { path = "patches/block" }

@@ -3,15 +3,18 @@ use std::sync::Arc;
 use engine_assets::{BlockRegistry, ResolvedBlockMaterials};
 use engine_core::{SystemContext, Time};
 use engine_render::{
-    build_mining_overlay_mesh, Camera, MiningOverlay, ParticleSystem, RenderExtractState,
+    build_mining_overlay_mesh, humanoid_part_mask_without_head, humanoid_pose_from_animation,
+    Camera, MiningOverlay, ParticleSystem, PlayerAnimationParams, PlayerRender, RenderExtractState,
     RenderSurfaceInfo, RenderWorld,
 };
 use engine_world::{BiomeMap, SparseVoxelOctree, VoxelCell, VoxelChanged};
 use game::{
-    build_lighting_snapshot, destroy_stage, local_player_entity, raycast_voxel, ActiveDebugWorld,
-    ActivePlayMode, BlockMiningState, DayNightCycle, DebugWorldKind, DisplayedPlayerView, PlayMode,
-    Transform, WorldInitialized, BLOCK_REACH, PLAYER_EYE_OFFSET_Z,
+    build_lighting_snapshot, destroy_stage, local_player_entity, raycast_voxel, view_forward,
+    player_view_position, wrap_angle, ActiveDebugWorld, ActivePlayMode, BlockMiningState,
+    DayNightCycle, DebugWorldKind, DisplayedPlayerView, PlayMode, PlayerAnimation,
+    PLAYER_MAX_HEAD_YAW, Transform, WorldInitialized, BLOCK_REACH, PLAYER_HALF_EXTENTS,
 };
+use glam::{Mat4, Vec3};
 
 use crate::lighting::render_lighting;
 use crate::mesh_pipeline::{bootstrap_terrain_meshes, rebuild_budget_for_extract, rebuild_chunk_meshes};
@@ -86,15 +89,21 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
         .get::<RenderSurfaceInfo>()
         .map(|info| info.aspect)
         .unwrap_or(16.0 / 9.0);
-    let camera = extract_camera(ctx, aspect);
-    if let Some(view) = ctx.resources.get_mut::<DisplayedPlayerView>() {
-        *view = DisplayedPlayerView {
-            eye: camera.position,
-            yaw: camera.yaw,
-            pitch: camera.pitch,
-            valid: true,
-        };
+    let survival = survival_player_snapshot(ctx);
+
+    let camera = extract_camera(ctx, aspect, survival);
+    if let Some(rendered) = survival {
+        let eye = player_view_position(rendered.position, rendered.yaw);
+        if let Some(view) = ctx.resources.get_mut::<DisplayedPlayerView>() {
+            *view = DisplayedPlayerView {
+                eye,
+                yaw: rendered.yaw,
+                pitch: rendered.pitch,
+                valid: true,
+            };
+        }
     }
+
     let animation_tick = ctx
         .resources
         .get::<Time>()
@@ -115,6 +124,8 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
         .get::<RenderWorld>()
         .map(|world| world.mesh_generation)
         .unwrap_or(0);
+
+    let (ray_origin, ray_dir) = interaction_ray(survival, &camera);
 
     let extract = ctx
         .resources
@@ -139,14 +150,8 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
                 } else {
                     None
                 };
-                let target_block = raycast_voxel(
-                    world,
-                    registry,
-                    camera.position,
-                    camera.forward(),
-                    BLOCK_REACH,
-                )
-                .map(|hit| hit.block_pos);
+                let target_block = raycast_voxel(world, registry, ray_origin, ray_dir, BLOCK_REACH)
+                    .map(|hit| hit.block_pos);
                 (generation, mesh_update, target_block)
             },
         );
@@ -189,6 +194,8 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
         .map(|cycle| render_lighting(build_lighting_snapshot(cycle.world_time)))
         .unwrap_or_default();
 
+    let player = player_render(ctx, survival);
+
     if let Some(render_world) = ctx.resources.get_mut::<RenderWorld>() {
         render_world.camera = camera;
         if let Some((opaque, cutout)) = mesh_update {
@@ -200,40 +207,82 @@ pub fn extract_render_world_system(ctx: &mut SystemContext<'_>) {
         render_world.lighting = lighting;
         render_world.target_block = target_block;
         render_world.mining_overlay = mining_overlay;
+        render_world.player = player;
         render_world.ready = true;
     }
 }
 
-fn extract_camera(ctx: &SystemContext<'_>, aspect: f32) -> Camera {
-    let survival = ctx
+fn survival_player_snapshot(ctx: &SystemContext<'_>) -> Option<TransformSnapshot> {
+    if ctx
         .resources
         .get::<ActivePlayMode>()
-        .is_none_or(|mode| mode.0 == PlayMode::Survival);
+        .is_some_and(|mode| mode.0 != PlayMode::Survival)
+    {
+        return None;
+    }
+    let entity = local_player_entity(ctx)?;
+    let transform = ctx.world.get::<&Transform>(entity).ok()?;
+    let alpha = ctx
+        .resources
+        .get::<Time>()
+        .map(|time| time.interpolation_alpha)
+        .unwrap_or(0.0);
+    let previous = ctx
+        .resources
+        .get::<PreviousPlayerTransform>()
+        .and_then(|prev| prev.0)
+        .unwrap_or_else(|| TransformSnapshot::from(&*transform));
+    Some(lerp_transform_snapshot(previous, &transform, alpha))
+}
 
-    if survival {
-        if let Some(entity) = local_player_entity(ctx) {
-            if let Ok(transform) = ctx.world.get::<&Transform>(entity) {
-                let alpha = ctx
-                    .resources
-                    .get::<Time>()
-                    .map(|time| time.interpolation_alpha)
-                    .unwrap_or(0.0);
-                let previous = ctx
-                    .resources
-                    .get::<PreviousPlayerTransform>()
-                    .and_then(|prev| prev.0)
-                    .unwrap_or_else(|| TransformSnapshot::from(&*transform));
-                let rendered = lerp_transform_snapshot(previous, &transform, alpha);
-                return Camera {
-                    position: rendered.position
-                        + glam::Vec3::new(0.0, 0.0, PLAYER_EYE_OFFSET_Z),
-                    yaw: rendered.yaw,
-                    pitch: rendered.pitch,
-                    aspect,
-                    ..Camera::default()
-                };
-            }
-        }
+fn interaction_ray(survival: Option<TransformSnapshot>, camera: &Camera) -> (Vec3, Vec3) {
+    if let Some(rendered) = survival {
+        let eye = player_view_position(rendered.position, rendered.yaw);
+        return (eye, view_forward(rendered.yaw, rendered.pitch));
+    }
+    (camera.position, camera.forward())
+}
+
+fn player_render(
+    ctx: &SystemContext<'_>,
+    survival: Option<TransformSnapshot>,
+) -> Option<PlayerRender> {
+    let rendered = survival?;
+    let feet = rendered.position - Vec3::Z * PLAYER_HALF_EXTENTS.z;
+    let animation = local_player_entity(ctx)
+        .and_then(|entity| ctx.world.get::<&PlayerAnimation>(entity).ok().map(|a| *a))
+        .unwrap_or_default();
+    let body_yaw = animation.body_yaw;
+    let head_yaw = wrap_angle(rendered.yaw - body_yaw)
+        .clamp(-PLAYER_MAX_HEAD_YAW, PLAYER_MAX_HEAD_YAW);
+    let base = Mat4::from_translation(feet) * Mat4::from_rotation_z(-body_yaw);
+    let pose = humanoid_pose_from_animation(PlayerAnimationParams {
+        limb_swing: animation.limb_swing,
+        limb_swing_amount: animation.limb_swing_amount,
+        head_pitch: rendered.pitch,
+        head_yaw,
+    });
+    Some(PlayerRender {
+        base,
+        pose,
+        part_mask: humanoid_part_mask_without_head(),
+    })
+}
+
+fn extract_camera(
+    ctx: &SystemContext<'_>,
+    aspect: f32,
+    survival: Option<TransformSnapshot>,
+) -> Camera {
+    if let Some(rendered) = survival {
+        let eye = player_view_position(rendered.position, rendered.yaw);
+        return Camera {
+            position: eye,
+            yaw: rendered.yaw,
+            pitch: rendered.pitch,
+            aspect,
+            ..Camera::default()
+        };
     }
 
     let spectator = ctx

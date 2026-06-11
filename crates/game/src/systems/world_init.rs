@@ -4,8 +4,8 @@ use glam::Vec3;
 
 use crate::axes::PLAYER_HALF_EXTENTS;
 use crate::components::{
-    BlockMiningState, Collider, LocomotionState, NetPlayerId, Player, PlayerInventory, Transform,
-    Velocity, WorldInitialized, WorldSeed,
+    BlockMiningState, Collider, LocomotionState, NetPlayerId, Player, PlayerAnimation,
+    PlayerInventory, Transform, Velocity, WorldInitialized, WorldSeed,
 };
 use crate::input::LocalPlayerId;
 use crate::mode::NetworkClient;
@@ -113,6 +113,10 @@ pub fn spawn_net_player(
             pitch,
         },
         Velocity::default(),
+        PlayerAnimation {
+            body_yaw: yaw,
+            ..PlayerAnimation::default()
+        },
         LocomotionState::default(),
         BlockMiningState::default(),
         inventory,

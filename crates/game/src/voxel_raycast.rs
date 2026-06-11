@@ -2,7 +2,7 @@ use engine_assets::BlockRegistry;
 use engine_world::{BlockPos, SparseVoxelOctree};
 use glam::Vec3;
 
-use crate::axes::{view_forward, PLAYER_EYE_OFFSET_Z};
+use crate::axes::{player_view_position, view_forward};
 use crate::components::Transform;
 
 pub const BLOCK_REACH: f32 = 6.0;
@@ -21,7 +21,7 @@ pub fn camera_interaction_ray(camera_position: Vec3, yaw: f32, pitch: f32) -> (V
 }
 
 pub fn player_interaction_ray(transform: &Transform) -> (Vec3, Vec3) {
-    let origin = transform.position + Vec3::new(0.0, 0.0, PLAYER_EYE_OFFSET_Z);
+    let origin = player_view_position(transform.position, transform.yaw);
     (origin, view_forward(transform.yaw, transform.pitch))
 }
 

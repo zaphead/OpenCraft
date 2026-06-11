@@ -89,6 +89,27 @@ pub struct BlockMiningState {
     pub progress: f32,
 }
 
+/// Head can turn this far each way before the torso catches up (radians).
+pub const PLAYER_MAX_HEAD_YAW: f32 = 20.0_f32.to_radians();
+
+#[derive(Debug, Clone, Copy)]
+pub struct PlayerAnimation {
+    pub limb_swing: f32,
+    pub limb_swing_amount: f32,
+    /// Horizontal facing used for the torso (Z rotation); head turns ahead of this.
+    pub body_yaw: f32,
+}
+
+impl Default for PlayerAnimation {
+    fn default() -> Self {
+        Self {
+            limb_swing: 0.0,
+            limb_swing_amount: 0.0,
+            body_yaw: 0.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LocomotionState {
     pub on_ground: bool,

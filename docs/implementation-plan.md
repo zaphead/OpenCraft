@@ -416,6 +416,11 @@ Full client–server model per design doc §7:
 - **Phase 16:** Real pointer-based SVO with aggregate propagation tests; `AssetServer` async block registry load via IO thread.
 - **Phase 17:** `RenderWorld` extract snapshot; `RenderSubmitThread` (encode/submit on worker, surface/present on main); `ComputeMesher` GPU path; depth prepass; screen-space LOD + simplified Transvoxel seams; QUIC datagrams for `Input`/`EntitySnapshots`; `BlockChangeIntent` game events.
 
+### 2026-06-10 — Steve player model + walk animation
+
+- Third-person Steve skin (`HumanoidModelParts`), per-part GPU draws with pivot transforms.
+- `PlayerAnimation` + MC limb-swing walk cycle; head pitch from look direction.
+
 ---
 
 ## Explicit MVP shortcuts (must be removed later)

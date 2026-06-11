@@ -58,11 +58,11 @@ pub fn present_frame_system(ctx: &mut SystemContext<'_>) {
                 Default::default(),
                 Default::default(),
                 world.animation_tick,
-                Vec::new(),
                 world.target_block,
                 world.mining_overlay.clone(),
                 world.particles.clone(),
                 world.lighting,
+                world.player,
             );
             let gui = if world.gui.needs_gui_pass() {
                 Some(&world.gui)

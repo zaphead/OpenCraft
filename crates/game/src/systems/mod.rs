@@ -7,6 +7,7 @@ mod mount;
 mod mutation;
 mod physics;
 mod player;
+mod player_animation;
 pub mod terrain;
 mod world_init;
 
@@ -18,6 +19,7 @@ pub use chicken::{chicken_spawn_system, chicken_wander_system};
 pub use mount::{mount_system, mounted_movement_system, mounted_physics_system};
 pub use mutation::flush_world_mutations_system;
 pub use player::{player_look_system, player_locomotion_system};
+pub use player_animation::player_animation_system;
 pub use terrain::generate_terrain_system;
 pub use world_init::{
     spawn_local_player_system, spawn_net_player, spawn_network_player_system,

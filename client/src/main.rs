@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use engine_assets::{
-    load_destroy_stage_atlas, mining_textures_dir, EnvironmentTextures, GuiTextures,
+    load_destroy_stage_atlas, mining_textures_dir, EnvironmentTextures, GuiTextures, PlayerSkin,
     ResolvedBlockMaterials,
 };
 use engine_core::{App, Time, SIM_DT};
@@ -144,7 +144,19 @@ impl ClientApp {
             .unwrap_or_else(|| {
                 Arc::new(engine_assets::load_gui_textures(env!("CARGO_MANIFEST_DIR")))
             });
-        let renderer = Renderer::new(window, &materials, &destroy_atlas, &environment, &gui);
+        let player_skin = self
+            .ecs
+            .resource::<Arc<PlayerSkin>>()
+            .cloned()
+            .unwrap_or_else(|| Arc::new(engine_assets::load_player_skin(env!("CARGO_MANIFEST_DIR"))));
+        let renderer = Renderer::new(
+            window,
+            &materials,
+            &destroy_atlas,
+            &environment,
+            &gui,
+            &player_skin,
+        );
         self.ecs.insert_resource(ClientRenderer(renderer));
         if let Some(info) = self.ecs.resource_mut::<RenderSurfaceInfo>() {
             info.width = size.width;

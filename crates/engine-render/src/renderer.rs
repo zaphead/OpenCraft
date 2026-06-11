@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use engine_assets::{EnvironmentTextures, GuiTextures, ResolvedBlockMaterials, UvRect};
+use engine_assets::{EnvironmentTextures, GuiTextures, PlayerSkin, ResolvedBlockMaterials, UvRect};
 use wgpu::SurfaceError;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -12,6 +12,8 @@ use crate::render_passes;
 use crate::sky::SkyPipeline;
 use crate::mesh::SolidMesh;
 use crate::pipeline::{GpuMesh, RenderPipelines};
+use crate::player_model::build_humanoid_model_parts;
+use crate::player_pipeline::PlayerPipeline;
 use crate::post::{PostGpuUniform, PostPipeline};
 use crate::world_mesh::RenderScene;
 
@@ -34,6 +36,7 @@ pub struct Renderer {
     hud: HudPipeline,
     gui: GuiPipeline,
     gui_textures: GuiTextures,
+    player: PlayerPipeline,
 }
 
 impl Renderer {
@@ -43,6 +46,7 @@ impl Renderer {
         destroy_atlas: &engine_assets::TextureAtlas,
         environment: &EnvironmentTextures,
         gui_textures: &GuiTextures,
+        player_skin: &PlayerSkin,
     ) -> Self {
         let size = window.inner_size();
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -116,6 +120,17 @@ impl Renderer {
 
         let hud = HudPipeline::new(&device, surface_format);
         let gui = GuiPipeline::new(&device, &queue, surface_format, gui_textures);
+        let local_player_parts = build_humanoid_model_parts();
+        let player = PlayerPipeline::new(
+            &device,
+            &queue,
+            hdr_format,
+            &pipelines.scene_bind_group_layout(),
+            &lighting.uniform_bind_group_layout,
+            &lighting.shadow_bind_group_layout,
+            &local_player_parts,
+            player_skin,
+        );
 
         Self {
             window,
@@ -136,6 +151,7 @@ impl Renderer {
             hud,
             gui,
             gui_textures: gui_textures.clone(),
+            player,
         }
     }
 
@@ -258,6 +274,8 @@ impl Renderer {
             .particles
             .sync_mesh(&self.queue, particle_mesh);
 
+        self.player.set_player(&self.queue, scene.player);
+
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -291,6 +309,12 @@ impl Renderer {
             &self.opaque_meshes,
             &self.cutout_meshes,
         );
+        render_passes::record_player_depth_pass(
+            &mut encoder,
+            &self.depth_view,
+            &self.pipelines,
+            &self.player,
+        );
         render_passes::record_opaque_pass(
             &mut encoder,
             &self.post.hdr_view,
@@ -306,6 +330,14 @@ impl Renderer {
             &self.lighting,
             &self.pipelines,
             &self.cutout_meshes,
+        );
+        render_passes::record_player_color_pass(
+            &mut encoder,
+            &self.post.hdr_view,
+            &self.depth_view,
+            &self.lighting,
+            &self.pipelines,
+            &self.player,
         );
         render_passes::record_particle_pass(
             &mut encoder,

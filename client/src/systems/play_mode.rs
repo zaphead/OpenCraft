@@ -3,7 +3,7 @@ use game::{
     local_player_entity, player_spawn_center_z_at, spawn_net_player, ActiveDebugWorld, WorldSeed,
     PLAYER_SPAWN_PITCH,
     ActivePlayMode, LocalPlayerId, NetworkClient, PlayMode, Transform, Velocity,
-    PLAYER_EYE_OFFSET_Z,
+    player_view_position,
 };
 use glam::Vec3;
 
@@ -44,7 +44,7 @@ fn enter_spectator(ctx: &mut SystemContext<'_>) {
     if let Some(entity) = local_player_entity(ctx) {
         if let Ok(transform) = ctx.world.get::<&Transform>(entity) {
             if let Some(camera) = ctx.resources.get_mut::<SpectatorCamera>() {
-                camera.position = transform.position + Vec3::new(0.0, 0.0, PLAYER_EYE_OFFSET_Z);
+                camera.position = player_view_position(transform.position, transform.yaw);
                 camera.yaw = transform.yaw;
                 camera.pitch = transform.pitch;
                 if let Ok(velocity) = ctx.world.get::<&Velocity>(entity) {

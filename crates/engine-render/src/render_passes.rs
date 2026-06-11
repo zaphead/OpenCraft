@@ -1,6 +1,7 @@
 use crate::lighting::LightingResources;
 use crate::pipeline::GpuMesh;
 use crate::pipeline::RenderPipelines;
+use crate::player_pipeline::PlayerPipeline;
 use crate::post::PostPipeline;
 use crate::sky::SkyPipeline;
 
@@ -167,6 +168,72 @@ pub fn record_cutout_pass(
     pass.set_bind_group(2, &lighting.uniform_bind_group, &[]);
     pass.set_bind_group(3, &lighting.shadow_bind_group, &[]);
     draw_meshes(&mut pass, cutout_meshes);
+}
+
+pub fn record_player_depth_pass<'a>(
+    encoder: &mut wgpu::CommandEncoder,
+    depth_view: &wgpu::TextureView,
+    pipelines: &RenderPipelines,
+    player: &'a PlayerPipeline,
+) {
+    if !player.is_visible() {
+        return;
+    }
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("player_depth_pass"),
+        color_attachments: &[],
+        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            view: depth_view,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: None,
+        }),
+        occlusion_query_set: None,
+        timestamp_writes: None,
+    });
+    player.draw_depth(&mut pass, &pipelines.scene_bind_group);
+}
+
+pub fn record_player_color_pass<'a>(
+    encoder: &mut wgpu::CommandEncoder,
+    hdr_view: &wgpu::TextureView,
+    depth_view: &wgpu::TextureView,
+    lighting: &LightingResources,
+    pipelines: &RenderPipelines,
+    player: &'a PlayerPipeline,
+) {
+    if !player.is_visible() {
+        return;
+    }
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("player_pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: hdr_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            view: depth_view,
+            depth_ops: Some(wgpu::Operations {
+                load: wgpu::LoadOp::Load,
+                store: wgpu::StoreOp::Store,
+            }),
+            stencil_ops: None,
+        }),
+        occlusion_query_set: None,
+        timestamp_writes: None,
+    });
+    player.draw_color(
+        &mut pass,
+        &pipelines.scene_bind_group,
+        &lighting.uniform_bind_group,
+        &lighting.shadow_bind_group,
+    );
 }
 
 pub fn record_particle_pass<'a>(
