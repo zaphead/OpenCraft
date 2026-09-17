@@ -1,8 +1,0 @@
-/target
-/dist
-**/*.rs.bk
-.DS_Store
-
-# Source pack archives and extracted trees (keep locally; too large for GitHub)
-source-packs/*/*.zip
-source-packs/*/extracted/
