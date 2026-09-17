@@ -7,7 +7,7 @@ mod prim;
 pub use container::ContainerScreen;
 pub use hud::HudLayer;
 pub use pause::PauseMenu;
-pub use prim::Button;
+pub use prim::{Button, Panel};
 
 use engine_core::Vec2;
 use engine_render::UiQuad;

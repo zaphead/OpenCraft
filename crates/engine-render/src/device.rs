@@ -127,7 +127,8 @@ impl Gpu {
             label: Some("cam"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                // Vertex reads view_proj; fragment reads sun_dir/brightness.
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -166,7 +167,8 @@ impl Gpu {
 
         let cam_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("cam buf"),
-            size: 64,
+            // view_proj (64) + sun_dir xyz + brightness (16).
+            size: 80,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });

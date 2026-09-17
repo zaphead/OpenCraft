@@ -21,14 +21,17 @@ pub struct PackSounds {
 pub fn load(path: Option<&str>) -> Pack {
     let mut atlas = atlas::procedural_atlas();
     let mut skin = default_skin();
-    let Some(root) = path.map(PathBuf::from) else {
+    // Out of the box the game wears the vendored pack; a --pack path or
+    // OPENCRAFT_PACK env var overrides it. No pack still plays procedural.
+    let root = path.map(PathBuf::from).or_else(default_pack_dir);
+    let Some(root) = root.filter(|r| r.exists()) else {
+        if path.is_some() {
+            eprintln!("pack path missing: {} (procedural fallback)", path.unwrap_or_default());
+        } else {
+            eprintln!("pack: no assets/pack found (procedural fallback)");
+        }
         return Pack { atlas, skin };
     };
-    if !root.exists() {
-        eprintln!("pack path missing: {}", root.display());
-        return Pack { atlas, skin };
-    }
-
     let names: &[(&[&str], u32)] = &[
         (&["block/grass_block_top.png", "block/grass_top.png", "blocks/grass_top.png"], atlas::T_GRASS_TOP),
         (&["block/grass_block_side.png", "block/grass_side.png"], atlas::T_GRASS_SIDE),
@@ -37,6 +40,7 @@ pub fn load(path: Option<&str>) -> Pack {
         (&["block/cobblestone.png", "blocks/cobblestone.png"], atlas::T_COBBLE),
         (&["block/oak_log.png", "block/log_oak.png", "blocks/log_oak.png"], atlas::T_LOG),
         (&["block/oak_log_top.png", "block/log_oak_top.png"], atlas::T_LOG_TOP),
+        (&["block/oak_leaves.png", "block/leaves_oak.png", "blocks/leaves_oak.png"], atlas::T_LEAVES),
         (&["block/oak_planks.png", "block/planks_oak.png", "blocks/planks_oak.png"], atlas::T_PLANKS),
         (&["block/crafting_table_top.png"], atlas::T_TABLE_TOP),
         (&["block/crafting_table_front.png"], atlas::T_TABLE_FRONT),
@@ -72,6 +76,26 @@ struct Image {
     w: u32,
     h: u32,
     data: Vec<u8>,
+}
+
+/// Vendored pack lookup: `<cwd>/assets/pack`, then next to the client binary.
+/// Returns `None` when nothing is vendored, which is a supported way to play.
+pub fn default_pack_dir() -> Option<PathBuf> {
+    let rel = Path::new("assets/pack");
+    if rel.is_dir() {
+        return Some(rel.to_path_buf());
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        // `target/debug/client` layout: every ancestor up to the workspace
+        // root is visited, so no `..` joins are needed.
+        for up in exe.ancestors().skip(1).take(4) {
+            let d = up.join("assets/pack");
+            if d.is_dir() {
+                return Some(d);
+            }
+        }
+    }
+    None
 }
 
 fn first_image(root: &Path, rels: &[&str]) -> Option<Image> {
@@ -204,52 +228,163 @@ fn fill_rect(s: &mut [u8], x: u32, y: u32, w: u32, h: u32, c: [u8; 4]) {
 pub fn load_oggs(root: &Path, mixer: &mut engine_audio::Mixer) -> PackSounds {
     let mut sounds = PackSounds::default();
     let mut next = 1u16;
-    let search = [
-        ("dig/grass", "break"),
-        ("dig/stone", "break"),
-        ("dig/wood", "break"),
-        ("step/grass", "step"),
-        ("step/stone", "step"),
-        ("step/wood", "step"),
-        ("block/grass/break", "break"),
-        ("block/stone/break", "break"),
-        ("block/wood/break", "break"),
-        ("block/grass/place", "place"),
-        ("block/stone/place", "place"),
-        ("block/wood/place", "place"),
-        ("block/grass/step", "step"),
-        ("block/stone/step", "step"),
-        ("entity/player/hurt", "hurt"),
-        ("random/hurt", "hurt"),
-        ("entity/item/pickup", "pickup"),
-        ("random/pop", "pickup"),
+    // Real packs number their variants (grass1..4) and span two eras of
+    // paths (dig/grass1 vs block/grass/break1); probe every spelling and
+    // register the first hit per slot. Missing everything stays silent.
+    let search: &[(&[&str], &str)] = &[
+        (&["dig/grass", "block/grass/break"], "break"),
+        (&["dig/stone", "block/stone/break", "random/break"], "break"),
+        (&["dig/wood", "block/wood/break"], "break"),
+        (&["step/grass", "block/grass/step"], "step"),
+        (&["step/stone", "block/stone/step"], "step"),
+        (&["step/wood", "block/wood/step"], "step"),
+        (&["block/grass/place", "dig/grass"], "place"),
+        (&["block/stone/place", "dig/stone"], "place"),
+        (&["block/wood/place", "dig/wood"], "place"),
+        (&["damage/hit", "random/classic_hurt", "entity/player/hurt", "random/hurt"], "hurt"),
+        (&["random/pop", "entity/item/pickup"], "pickup"),
     ];
-    for (rel, kind) in search {
-        for ext in ["ogg", "OGG"] {
-            let p = root
-                .join("assets/minecraft/sounds")
-                .join(format!("{rel}.{ext}"));
-            let p2 = root.join("sounds").join(format!("{rel}.{ext}"));
-            for path in [p, p2] {
-                if !path.is_file() {
-                    continue;
-                }
-                if let Ok(f) = std::fs::File::open(&path) {
-                    if let Ok(clip) = engine_audio::decode_ogg(std::io::BufReader::new(f)) {
-                        mixer.register(next, clip);
-                        match kind {
-                            "step" => sounds.step.push(next),
-                            "break" => sounds.break_b.push(next),
-                            "place" => sounds.place.push(next),
-                            "hurt" => sounds.hurt.push(next),
-                            "pickup" => sounds.pickup.push(next),
-                            _ => {}
-                        }
-                        next += 1;
+    for &(rels, kind) in search {
+        if load_first_ogg(root, mixer, rels, next).is_some() {
+            match kind {
+                "step" => sounds.step.push(next),
+                "break" => sounds.break_b.push(next),
+                "place" => sounds.place.push(next),
+                "hurt" => sounds.hurt.push(next),
+                "pickup" => sounds.pickup.push(next),
+                _ => {}
+            }
+            next += 1;
+        }
+    }
+    if sounds.break_b.is_empty() && sounds.step.is_empty() {
+        eprintln!("pack: no usable sounds under {}", root.display());
+    }
+    sounds
+}
+
+/// First decodable ogg wins. Numbered spares (grass2..6) cover a missing
+/// or corrupt grass1: a bad file never kills the slot, the next spelling is
+/// tried instead. Keeps mixer ids 1:1 with PackSounds slots.
+fn load_first_ogg(root: &Path, mixer: &mut engine_audio::Mixer, rels: &[&str], id: u16) -> Option<()> {
+    for rel in rels {
+        // Vanilla-numbered variants first, then the bare name.
+        for n in ["1", "2", "3", "4", "5", "6", ""] {
+            for ext in ["ogg", "OGG"] {
+                let p = root
+                    .join("assets/minecraft/sounds")
+                    .join(format!("{rel}{n}.{ext}"));
+                let p2 = root.join("sounds").join(format!("{rel}{n}.{ext}"));
+                for path in [p, p2] {
+                    if !path.is_file() {
+                        continue;
                     }
+                    let Ok(f) = std::fs::File::open(&path) else {
+                        continue;
+                    };
+                    let Ok(clip) = engine_audio::decode_ogg(std::io::BufReader::new(f)) else {
+                        continue;
+                    };
+                    mixer.register(id, clip);
+                    return Some(());
                 }
             }
         }
     }
-    sounds
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pack_load_never_blows_up() {
+        let pack = load(None);
+        assert_eq!(pack.atlas.len(), (atlas::ATLAS * atlas::ATLAS * 4) as usize);
+        assert_eq!(pack.skin.len(), 64 * 64 * 4);
+        // Wherever the vendored pack is checked out, it must leave a mark:
+        // same world, different pixels proves art (not fallback) is worn.
+        if default_pack_dir().is_some() {
+            assert_ne!(
+                pack.atlas,
+                atlas::procedural_atlas(),
+                "vendored pack left no mark on the atlas"
+            );
+        }
+    }
+
+    #[test]
+    fn pack_sounds_land_or_stay_silent() {
+        // With the vendored pack: every gameplay slot speaks. Without one:
+        // silence, never a panic, never a half-registered id.
+        let mut mixer = engine_audio::Mixer::silent();
+        match default_pack_dir() {
+            Some(root) => {
+                let sounds = load_oggs(&root, &mut mixer);
+                assert!(!sounds.break_b.is_empty(), "pack break silent");
+                assert!(!sounds.step.is_empty(), "pack step silent");
+                assert!(!sounds.place.is_empty(), "pack place silent");
+                assert!(!sounds.hurt.is_empty(), "pack hurt silent");
+                assert!(!sounds.pickup.is_empty(), "pack pickup silent");
+            }
+            None => {
+                let sounds = load_oggs(std::path::Path::new("no-such-pack"), &mut mixer);
+                assert!(sounds.break_b.is_empty());
+                assert!(sounds.step.is_empty());
+                assert!(sounds.place.is_empty());
+                assert!(sounds.hurt.is_empty());
+                assert!(sounds.pickup.is_empty());
+            }
+        }
+    }
+
+    /// Scratch pack root under the OS temp dir. Unique per process so
+    /// parallel test binaries never share it; best-effort cleanup.
+    fn scratch_pack(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("opencraft-pack-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("assets/minecraft/sounds/dig")).expect("scratch pack");
+        dir
+    }
+
+    #[test]
+    fn corrupt_first_file_falls_back_to_spares() {
+        // grass1 is garbage and grass2 is a real clip borrowed from the
+        // vendored pack: the break slot must speak via the spare. Runs
+        // wherever the pack is checked out; without it there is no decodable
+        // spare to fall back to, so only the always-run silence test applies.
+        let Some(vendored) = default_pack_dir() else {
+            return;
+        };
+        let dir = scratch_pack("fallback");
+        std::fs::write(dir.join("assets/minecraft/sounds/dig/grass1.ogg"), b"not an ogg").expect("scratch");
+        for spare in ["dig/grass2.ogg", "dig/grass3.ogg", "dig/grass4.ogg"] {
+            let src = vendored.join("assets/minecraft/sounds").join(spare);
+            if src.is_file() {
+                std::fs::copy(src, dir.join("assets/minecraft/sounds").join(spare)).expect("scratch");
+                break;
+            }
+        }
+        let mut mixer = engine_audio::Mixer::silent();
+        let sounds = load_oggs(&dir, &mut mixer);
+        assert!(!sounds.break_b.is_empty(), "corrupt grass1 killed the slot");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn garbage_pack_stays_silent() {
+        // Always runs, pack or not: undecodable files are skipped, missing
+        // files are skipped, the slots stay empty, nothing panics.
+        let dir = scratch_pack("garbage");
+        std::fs::write(dir.join("assets/minecraft/sounds/dig/grass1.ogg"), b"not an ogg").expect("scratch");
+        let mut mixer = engine_audio::Mixer::silent();
+        let sounds = load_oggs(&dir, &mut mixer);
+        assert!(sounds.break_b.is_empty());
+        assert!(sounds.step.is_empty());
+        assert!(sounds.place.is_empty());
+        assert!(sounds.hurt.is_empty());
+        assert!(sounds.pickup.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

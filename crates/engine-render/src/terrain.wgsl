@@ -7,6 +7,8 @@ struct VsOut {
 
 struct Camera {
     view_proj: mat4x4<f32>,
+    sun_dir: vec3<f32>,
+    brightness: f32,
 }
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -30,8 +32,9 @@ fn vs_main(
 
 @fragment
 fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
-    let sun = normalize(vec3<f32>(0.35, 1.0, 0.2));
+    let sun = normalize(camera.sun_dir);
     let lit = 0.35 + 0.65 * max(dot(normalize(i.normal), sun), 0.0);
     let texel = textureSample(tex, samp, i.uv);
-    return vec4<f32>(texel.rgb * i.color.rgb * lit, texel.a * i.color.a);
+    let rgb = texel.rgb * i.color.rgb * lit * camera.brightness;
+    return vec4<f32>(rgb, texel.a * i.color.a);
 }

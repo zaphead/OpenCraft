@@ -24,6 +24,7 @@ pub const T_WOOD_SHOVEL: u32 = 16;
 pub const T_STONE_PICK: u32 = 17;
 pub const T_STONE_AXE: u32 = 18;
 pub const T_STONE_SHOVEL: u32 = 19;
+pub const T_LEAVES: u32 = 20;
 
 pub fn tile_uv(tile: u32) -> (Vec2, Vec2) {
     let x = (tile % TILES) as f32;
@@ -56,13 +57,14 @@ pub fn block_tile(block: u16, face: u8) -> u32 {
             _ => T_TABLE_SIDE,
         },
         8 => T_CHEST,
+        9 => T_LEAVES,
         _ => T_MISSING,
     }
 }
 
 pub fn item_tile(item: u16) -> u32 {
     match item {
-        1..=8 => block_tile(item, 4),
+        1..=9 => block_tile(item, 4),
         16 => T_STICK,
         17 => T_WOOD_PICK,
         18 => T_WOOD_AXE,
@@ -76,7 +78,8 @@ pub fn item_tile(item: u16) -> u32 {
 
 pub fn procedural_atlas() -> Vec<u8> {
     let mut data = vec![0u8; (ATLAS * ATLAS * 4) as usize];
-    fill_tile(&mut data, T_MISSING, checker([255, 0, 255, 255], [0, 0, 0, 255]));
+    // Missing art falls back to plain rock-grey noise: playable, never magenta.
+    fill_tile(&mut data, T_MISSING, speckle([122, 116, 108, 255], [96, 90, 84, 255]));
     fill_tile(&mut data, T_GRASS_TOP, solid([74, 166, 58, 255]));
     fill_tile(&mut data, T_GRASS_SIDE, split([74, 166, 58, 255], [121, 85, 58, 255]));
     fill_tile(&mut data, T_DIRT, solid([121, 85, 58, 255]));
@@ -96,6 +99,11 @@ pub fn procedural_atlas() -> Vec<u8> {
     fill_tile(&mut data, T_STONE_PICK, tool([140, 140, 140, 255]));
     fill_tile(&mut data, T_STONE_AXE, tool([140, 140, 140, 255]));
     fill_tile(&mut data, T_STONE_SHOVEL, tool([140, 140, 140, 255]));
+    fill_tile(&mut data, T_LEAVES, speckle([46, 122, 40, 255], [28, 84, 26, 255]));
+    // Reserved white anchor for engine-render ground shadows (see ANCHOR_UV):
+    // tile 255 is never blitted by the pack loader, so this pixel survives.
+    let anchor = ((255 * ATLAS + 255) * 4) as usize;
+    data[anchor..anchor + 4].copy_from_slice(&[255, 255, 255, 255]);
     data
 }
 
@@ -121,10 +129,6 @@ fn solid(c: [u8; 4]) -> impl Fn(u32, u32) -> [u8; 4] {
             255,
         ]
     }
-}
-
-fn checker(a: [u8; 4], b: [u8; 4]) -> impl Fn(u32, u32) -> [u8; 4] {
-    move |x, y| if (x / 8 + y / 8) % 2 == 0 { a } else { b }
 }
 
 fn split(top: [u8; 4], bot: [u8; 4]) -> impl Fn(u32, u32) -> [u8; 4] {
@@ -154,6 +158,8 @@ fn tool(c: [u8; 4]) -> impl Fn(u32, u32) -> [u8; 4] {
 }
 
 pub fn blit_tile(atlas: &mut [u8], tile: u32, rgba: &[u8], w: u32, h: u32) {
+    // Tile 255 hosts the ANCHOR_UV white pixel; no pack art may claim it.
+    debug_assert_ne!(tile, 255, "tile 255 is the reserved white anchor");
     let tx = (tile % TILES) * TILE;
     let ty = (tile / TILES) * TILE;
     for y in 0..TILE {
@@ -166,6 +172,35 @@ pub fn blit_tile(atlas: &mut [u8], tile: u32, rgba: &[u8], w: u32, h: u32) {
             }
             let i = (((ty + y) * ATLAS + tx + x) * 4) as usize;
             atlas[i..i + 4].copy_from_slice(&rgba[si..si + 4]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn face_tiles_read_right() {
+        // Grass-top on top, dirt under, side grain on the sides; logs read
+        // as logs from every side; leaves and unknowns never go magenta.
+        assert_eq!(block_tile(1, 3), T_GRASS_TOP);
+        assert_eq!(block_tile(1, 2), T_DIRT);
+        assert_eq!(block_tile(1, 4), T_GRASS_SIDE);
+        assert_eq!(block_tile(5, 3), T_LOG_TOP);
+        assert_eq!(block_tile(5, 0), T_LOG);
+        assert_eq!(block_tile(9, 4), T_LEAVES);
+        assert_eq!(block_tile(200, 4), T_MISSING);
+        // Missing art is grey noise now: sample the tile, reject magenta.
+        let atlas = procedural_atlas();
+        let tx = (T_MISSING % TILES) * TILE;
+        let ty = (T_MISSING / TILES) * TILE;
+        for y in 0..TILE {
+            for x in 0..TILE {
+                let i = (((ty + y) * ATLAS + tx + x) * 4) as usize;
+                let (r, g, b) = (atlas[i], atlas[i + 1], atlas[i + 2]);
+                assert!(!(r > 200 && g < 80 && b > 200), "magenta at ({x}, {y})");
+            }
         }
     }
 }

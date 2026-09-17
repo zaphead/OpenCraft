@@ -94,7 +94,7 @@ pub fn tick_body(body: &mut Body, input: MoveInput, world: &impl VoxelSolid) {
     body.yaw = input.yaw;
     body.pitch = input.pitch.clamp(-1.535, 1.535);
     body.sneaking = input.sneak;
-    body.sprinting = input.sprint && !input.sneak && input.forward > 0.0;
+    body.sprinting = input.sprint && !body.sneaking && input.forward > 0.0;
 
     let mut accel = if body.on_ground { GROUND_ACCEL } else { AIR_ACCEL };
     if body.sprinting && body.on_ground {
@@ -130,6 +130,7 @@ pub fn tick_body(body: &mut Body, input: MoveInput, world: &impl VoxelSolid) {
 
     let mut box_ = body.aabb();
     let mut vel = body.vel;
+    let vy_before = vel.y;
     let before_y = box_.min.y;
     let hit = move_colliding(&mut box_, &mut vel, world, STEP);
     body.pos.x = (box_.min.x + box_.max.x) * 0.5;
@@ -137,9 +138,20 @@ pub fn tick_body(body: &mut Body, input: MoveInput, world: &impl VoxelSolid) {
     body.pos.z = (box_.min.z + box_.max.z) * 0.5;
     body.vel = vel;
 
-    if hit.y && before_y > body.pos.y {
+    // Grounded means contact below while falling or resting, not measured
+    // downward travel: a resting body clips zero distance every tick, and the
+    // old displacement check latched it airborne forever (no friction, no
+    // sneak grip, no jump refresh on stairs — the whole "slidey" feel).
+    if hit.y && vy_before <= 0.0 {
         body.on_ground = true;
     } else if !hit.y {
+        body.on_ground = if vy_before <= 0.0 {
+            supported_below(&box_, world)
+        } else {
+            false
+        };
+    } else {
+        // Rising into a ceiling: contact, but airborne. Never stale-grounded.
         body.on_ground = false;
     }
     if body.vel.y < 0.0 && !body.on_ground {
@@ -159,24 +171,35 @@ pub fn tick_body(body: &mut Body, input: MoveInput, world: &impl VoxelSolid) {
     body.vel.z *= drag;
 }
 
-fn sneak_edge(body: &mut Body, world: &impl VoxelSolid) {
-    let probe = body.aabb().translate(Vec3::new(body.vel.x, -0.05, body.vel.z));
-    let feet_y = (body.pos.y - 0.001).floor() as i32;
-    let x = body.pos.x.floor() as i32;
-    let z = body.pos.z.floor() as i32;
-    let dest_x = probe.min.x.floor() as i32;
-    let dest_z = probe.min.z.floor() as i32;
-    let dest_x2 = (probe.max.x - 0.001).floor() as i32;
-    let dest_z2 = (probe.max.z - 0.001).floor() as i32;
-    let mut supported = false;
-    for ix in dest_x..=dest_x2 {
-        for iz in dest_z..=dest_z2 {
-            if world.solid(ix, feet_y, iz) {
-                supported = true;
+/// Solid ground under any corner of this box? Only consulted when the Y
+/// sweep clipped nothing, to tell resting contact from thin air.
+fn supported_below(box_: &Aabb, world: &impl VoxelSolid) -> bool {
+    let feet_y = (box_.min.y - 1e-3).floor() as i32;
+    let min_x = box_.min.x.floor() as i32;
+    let min_z = box_.min.z.floor() as i32;
+    let max_x = (box_.max.x - 1e-4).floor() as i32;
+    let max_z = (box_.max.z - 1e-4).floor() as i32;
+    for x in min_x..=max_x {
+        for z in min_z..=max_z {
+            if world.solid(x, feet_y, z) {
+                return true;
             }
         }
     }
-    if !supported && world.solid(x, feet_y, z) {
+    false
+}
+
+fn sneak_edge(body: &mut Body, world: &impl VoxelSolid) {
+    // Java-like lip grip: stepping the body center past support while the
+    // center still stands on ground cancels the move. Center-based, because a
+    // footprint check stays "supported" on the trailing corner a full block
+    // past the lip, which is exactly how bodies used to stroll into the void.
+    let feet_y = (body.pos.y - 0.001).floor() as i32;
+    let cur_x = body.pos.x.floor() as i32;
+    let cur_z = body.pos.z.floor() as i32;
+    let dest_x = (body.pos.x + body.vel.x).floor() as i32;
+    let dest_z = (body.pos.z + body.vel.z).floor() as i32;
+    if world.solid(cur_x, feet_y, cur_z) && !world.solid(dest_x, feet_y, dest_z) {
         body.vel.x = 0.0;
         body.vel.z = 0.0;
     }
@@ -223,5 +246,138 @@ mod tests {
         tick_body(&mut b, input, &Flat);
         assert!(!b.on_ground);
         assert!(b.vel.y > 0.2);
+    }
+
+    struct Blocks {
+        floor: i32,
+        lid_y: Option<i32>,
+        steps: bool,
+    }
+
+    impl VoxelSolid for Blocks {
+        fn solid(&self, x: i32, y: i32, z: i32) -> bool {
+            if self.steps {
+                // Staircase rising one block per step along +x from x=0.
+                let top = self.floor + (x.max(0).min(8)) as i32;
+                if z == 0 && x >= -4 && x <= 9 && y < top && y >= top - 6 {
+                    return true;
+                }
+                return false;
+            }
+            if y < self.floor {
+                return true;
+            }
+            if self.lid_y.is_some_and(|l| y == l && x >= -2 && x <= 2 && z >= -2 && z <= 2) {
+                return true;
+            }
+            false
+        }
+    }
+
+    fn free_of_rock(b: &Body, w: &Blocks) {
+        let a = b.aabb();
+        let shrink = 1e-3;
+        for x in (a.min.x.floor() as i32)..=((a.max.x - shrink).floor() as i32) {
+            for y in (a.min.y.floor() as i32)..=((a.max.y - shrink).floor() as i32) {
+                for z in (a.min.z.floor() as i32)..=((a.max.z - shrink).floor() as i32) {
+                    if !w.solid(x, y, z) {
+                        continue;
+                    }
+                    let block = Aabb {
+                        min: Vec3::new(x as f32, y as f32, z as f32),
+                        max: Vec3::new(x as f32 + 1.0, y as f32 + 1.0, z as f32 + 1.0),
+                    };
+                    assert!(!a.intersects(block), "wedged into ({x}, {y}, {z})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sneak_toggle_is_exact() {
+        // Sneak is the key, nothing latches: alternating every tick tracks
+        // input exactly and the body never touches rock.
+        let w = Blocks { floor: 0, lid_y: None, steps: false };
+        let mut b = Body::at(Vec3::new(0.5, 0.0, 0.5));
+        b.on_ground = true;
+        for t in 0..40 {
+            let mut input = MoveInput::default();
+            input.sneak = t % 2 == 0;
+            tick_body(&mut b, input, &w);
+            assert_eq!(b.sneaking, input.sneak, "sneak stuck at tick {t}");
+            free_of_rock(&b, &w);
+        }
+    }
+
+    #[test]
+    fn unsneak_in_open_stands_up() {
+        let w = Blocks { floor: 0, lid_y: None, steps: false };
+        let mut b = Body::at(Vec3::new(0.5, 0.0, 0.5));
+        b.on_ground = true;
+        let mut sneak = MoveInput::default();
+        sneak.sneak = true;
+        tick_body(&mut b, sneak, &w);
+        assert!(b.sneaking);
+        tick_body(&mut b, MoveInput::default(), &w);
+        assert!(!b.sneaking);
+        assert_eq!(b.height(), PLAYER_HEIGHT);
+    }
+
+    #[test]
+    fn ground_friction_stops_the_slide() {
+        // Sprint cut to idle: Java-like drag must kill the glide, no ice rink.
+        let w = Blocks { floor: 0, lid_y: None, steps: false };
+        let mut b = Body::at(Vec3::new(0.5, 0.0, 0.5));
+        b.on_ground = true;
+        b.vel.x = 0.5;
+        for _ in 0..20 {
+            tick_body(&mut b, MoveInput::default(), &w);
+        }
+        assert!(b.vel.x.abs() < 0.005, "still skating at {}", b.vel.x);
+    }
+
+    #[test]
+    fn staircase_jump_never_wedges() {
+        let w = Blocks { floor: 0, lid_y: None, steps: true };
+        let mut b = Body::at(Vec3::new(-3.5, 0.0, 0.5));
+        b.on_ground = true;
+        // Sprint-jump up eight full blocks: step assist plus jumps must never
+        // leave the body intersecting terrain.
+        for t in 0..400 {
+            let mut input = MoveInput::default();
+            input.forward = 1.0;
+            input.sprint = true;
+            input.yaw = -std::f32::consts::FRAC_PI_2;
+            if b.on_ground && t % 12 == 0 {
+                input.jump = true;
+            }
+            tick_body(&mut b, input, &w);
+            free_of_rock(&b, &w);
+        }
+        assert!(b.pos.x > 4.0, "stuck at the stairs at x={}", b.pos.x);
+    }
+
+    #[test]
+    fn sneak_holds_the_edge() {
+        // Island floor top at y=0 for x in -4..=2, void past x=2.
+        struct Island;
+        impl VoxelSolid for Island {
+            fn solid(&self, x: i32, y: i32, _z: i32) -> bool {
+                y < 0 && x <= 2
+            }
+        }
+        let w = Island;
+        let mut b = Body::at(Vec3::new(1.5, 0.0, 0.5));
+        b.on_ground = true;
+        // Sneaking toward the void must hold position at the lip.
+        for _ in 0..60 {
+            let mut input = MoveInput::default();
+            input.sneak = true;
+            input.forward = 1.0;
+            input.yaw = -std::f32::consts::FRAC_PI_2;
+            tick_body(&mut b, input, &w);
+        }
+        assert!(b.pos.x < 3.2, "sneak strolled off at x={}", b.pos.x);
+        assert!(b.pos.y > -0.5, "sneak fell off");
     }
 }

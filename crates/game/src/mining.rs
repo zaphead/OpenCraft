@@ -39,6 +39,8 @@ pub fn break_ticks(block: u16, held: Option<u16>) -> u32 {
             ToolKind::Pick => 30 / tier.max(1),
             ToolKind::None | ToolKind::Shovel | ToolKind::Axe => 150,
         },
+        // Leaves are soft foliage: fast by hand or any tool, never a tool gate.
+        blocks::LEAVES => 4,
         _ => 20,
     }
     .max(1)
@@ -64,6 +66,8 @@ pub fn harvest_drop(block: u16, held: Option<u16>) -> Option<(u16, u8)> {
         blocks::PLANKS => Some((blocks::PLANKS, 1)),
         blocks::CRAFTING_TABLE => Some((blocks::CRAFTING_TABLE, 1)),
         blocks::CHEST => Some((blocks::CHEST, 1)),
+        // Leaves vanish on break: no drop, no decay, no recipe.
+        blocks::LEAVES => None,
         _ => None,
     }
 }
@@ -79,5 +83,12 @@ mod tests {
             harvest_drop(blocks::STONE, Some(ItemId::WOOD_PICK)),
             Some((blocks::COBBLE, 1))
         );
+    }
+
+    #[test]
+    fn leaves_vanish_fast() {
+        assert_eq!(harvest_drop(blocks::LEAVES, None), None);
+        assert_eq!(harvest_drop(blocks::LEAVES, Some(ItemId::WOOD_AXE)), None);
+        assert!(break_ticks(blocks::LEAVES, None) <= 6);
     }
 }

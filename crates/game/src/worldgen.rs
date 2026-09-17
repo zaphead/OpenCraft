@@ -30,6 +30,28 @@ pub fn generate_chunk(seed: i64, pos: ChunkPos) -> Chunk {
                     for dy in 0..th {
                         chunk.set(lx as u32, h + dy, lz as u32, blocks::LOG);
                     }
+                    canopy(&mut chunk, seed, wx, h + th, wz);
+                }
+            }
+        }
+    }
+    // Halo pass: trees rooted up to 2 blocks outside this chunk still drape
+    // canopy in here. tree_here/surface_y are pure world functions, and a
+    // surface column top is grass by construction, so the home-chunk guards
+    // apply as-is without reading neighbor chunks (the grass check would
+    // always pass; height guards are repeated exactly). canopy() only ever
+    // replaces air, so a halo tree can never eat this chunk's trunks.
+    for dz in -2..18 {
+        for dx in -2..18 {
+            if (0..16).contains(&dx) && (0..16).contains(&dz) {
+                continue;
+            }
+            let (wx, wz) = (ox + dx, oz + dz);
+            if tree_here(seed, wx, wz) {
+                let h = surface_y(seed, wx, wz);
+                if h > MIN_Y + 4 && h + 5 < engine_core::MAX_Y {
+                    let th = 4 + (hash(seed, wx, wz) % 3) as i32;
+                    canopy(&mut chunk, seed, wx, h + th, wz);
                 }
             }
         }
@@ -45,6 +67,39 @@ pub fn surface_y(seed: i64, x: i32, z: i32) -> i32 {
 
 fn tree_here(seed: i64, x: i32, z: i32) -> bool {
     hash(seed.wrapping_add(91), x, z) % 47 == 0
+}
+
+/// Leaf canopy around the trunk top. Writes into this chunk only: caller
+/// guarantees the trunk fits, the canopy may clip at chunk borders the same
+/// way terrain does. Only replaces air, so canopies never eat trunks or hills.
+fn canopy(chunk: &mut Chunk, seed: i64, wx: i32, top_y: i32, wz: i32) {
+    let ox = chunk.pos.x * SECTION_EDGE;
+    let oz = chunk.pos.z * SECTION_EDGE;
+    for dy in -2..=1 {
+        let r = if dy <= -1 { 2 } else { 1 };
+        for dx in -r..=r {
+            for dz in -r..=r {
+                if dx * dx + dz * dz > r * r + 1 {
+                    continue;
+                }
+                // Ragged deterministic edge, same seed always grows the same tree.
+                if dx * dx + dz * dz == r * r + 1 && hash(seed, wx + dx, wz + dz + dy) % 2 == 0 {
+                    continue;
+                }
+                let (x, y, z) = (wx + dx, top_y + dy, wz + dz);
+                let (lx, lz) = (x - ox, z - oz);
+                if !(0..16).contains(&lx) || !(0..16).contains(&lz) {
+                    continue;
+                }
+                if y < MIN_Y || y >= engine_core::MAX_Y {
+                    continue;
+                }
+                if chunk.get(lx as u32, y, lz as u32) == blocks::AIR {
+                    chunk.set(lx as u32, y, lz as u32, blocks::LEAVES);
+                }
+            }
+        }
+    }
 }
 
 fn hash(seed: i64, x: i32, z: i32) -> u32 {
@@ -129,5 +184,86 @@ mod tests {
             }
         }
         assert!(max - min >= 8, "expected hills, span {}", max - min);
+    }
+
+    #[test]
+    fn halo_drapes_across_borders() {
+        // A tree rooted just west of chunk (0, 0) must still leaf into it.
+        // No interior tree is allowed near the asserted cells, so any leaves
+        // there prove the halo pass, not the home loop.
+        let mut grown = None;
+        for seed in 1..2000 {
+            for wz in 2..14 {
+                for wx in -2..0 {
+                    if !tree_here(seed, wx, wz) {
+                        continue;
+                    }
+                    let h = surface_y(seed, wx, wz);
+                    if !(h > MIN_Y + 4 && h + 5 < engine_core::MAX_Y) {
+                        continue;
+                    }
+                    let clear = (0..6).all(|ix| {
+                        ((wz - 3)..(wz + 3)).all(|iz| !tree_here(seed, ix, iz))
+                    });
+                    if clear {
+                        grown = Some((seed, wx, wz, h));
+                        break;
+                    }
+                }
+                if grown.is_some() {
+                    break;
+                }
+            }
+            if grown.is_some() {
+                break;
+            }
+        }
+        let (seed, wx, wz, h) = grown.expect("no isolated border tree in seeds 1..2000");
+        let th = 4 + (hash(seed, wx, wz) % 3) as i32;
+        let top = h + th;
+        let c = generate_chunk(seed, ChunkPos::new(0, 0));
+        let mut leaves = 0;
+        for lx in 0..2 {
+            for y in top - 2..=top + 1 {
+                for lz in (wz - 2).max(0)..=(wz + 2).min(15) {
+                    if c.get(lx as u32, y, lz as u32) == blocks::LEAVES {
+                        leaves += 1;
+                    }
+                }
+            }
+        }
+        assert!(leaves > 0, "halo left no leaves for seed {seed} tree ({wx}, {wz})");
+    }
+
+    #[test]
+    fn trees_wear_canopies() {
+        // Find a seed with a tree safely inside chunk (0, 0), then prove the
+        // canopy exists, the trunk survived it, and the seed regrows it.
+        let mut grown = None;
+        for seed in 1..500 {
+            let c = generate_chunk(seed, ChunkPos::new(0, 0));
+            let mut leaves = 0;
+            let mut logs = 0;
+            for sec in c.sections.iter() {
+                for id in sec.fill().iter() {
+                    if *id == blocks::LEAVES {
+                        leaves += 1;
+                    } else if *id == blocks::LOG {
+                        logs += 1;
+                    }
+                }
+            }
+            if leaves >= 8 && logs >= 4 {
+                grown = Some(seed);
+                break;
+            }
+        }
+        let seed = grown.expect("no canopied tree in seeds 1..500");
+        let again = generate_chunk(seed, ChunkPos::new(0, 0));
+        let mut leaves = 0;
+        for sec in again.sections.iter() {
+            leaves += sec.fill().iter().filter(|id| **id == blocks::LEAVES).count();
+        }
+        assert!(leaves >= 8, "seed {seed} regrew {leaves} leaves");
     }
 }

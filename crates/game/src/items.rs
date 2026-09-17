@@ -13,7 +13,7 @@ impl ItemId {
 }
 
 pub fn is_block_item(id: u16) -> bool {
-    id >= 1 && id <= 8
+    id >= 1 && id <= 9
 }
 
 pub fn item_max(id: u16) -> u8 {

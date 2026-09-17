@@ -67,8 +67,20 @@ impl App {
         for m in msgs {
             self.handle_server(m);
         }
-        while let Ok(job) = self.mesh_rx.try_recv() {
-            self.pending_upload.push(job);
+        while let Ok((pos, mesh, us)) = self.mesh_rx.try_recv() {
+            // Drop meshes for chunks that unloaded while meshing: uploading
+            // them would resurrect dead terrain for a frame.
+            if self.replica.has_chunk(pos) {
+                self.pending_upload.push((pos, mesh));
+            }
+            self.meshes_done += 1;
+            self.mesh_ema_ms += (us as f64 / 1000.0 - self.mesh_ema_ms) * 0.1;
+            self.in_flight.remove(&pos);
+            // An edit landed mid-mesh: the upload above is already stale, so
+            // immediately re-queue one fresh job from the current replica.
+            if self.dirty.remove(&pos) {
+                self.queue_chunk(pos);
+            }
         }
     }
 
@@ -92,19 +104,16 @@ impl App {
             ServerPlay::KeepTick { .. } => {}
             ServerPlay::Chunk { pos, sections } => {
                 replica::apply_chunk(&mut self.replica, pos, &sections);
-                if let Some(snap) = self.replica.snapshot(pos) {
-                    self.mesh_tx.send(snap).ok();
-                }
+                self.queue_chunk(pos);
             }
             ServerPlay::UnloadChunk { pos } => {
                 self.replica.remove_chunk(pos);
+                self.meshed_step.remove(&pos);
                 self.pending_remove.push(pos);
             }
             ServerPlay::BlockUpdate { pos, id } => {
                 replica::apply_block(&mut self.replica, pos, id);
-                if let Some(snap) = self.replica.snapshot(pos.chunk()) {
-                    self.mesh_tx.send(snap).ok();
-                }
+                self.queue_chunk(pos.chunk());
             }
             ServerPlay::PlayerCorrection {
                 pos,

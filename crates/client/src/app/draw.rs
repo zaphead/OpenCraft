@@ -1,21 +1,135 @@
-use engine_core::{partial_tick, Vec3};
-use engine_render::{Camera, FrameSubmit, ItemDraw, PlayerDraw};
+use std::f32::consts::TAU;
+use std::time::Instant;
+
+use engine_core::{partial_tick, BlockPos, Mat4, Vec2, Vec3};
+use engine_render::{Camera, FrameSubmit, GroundShadow, ItemDraw, PlayerDraw};
 use game::{as_block, break_ticks};
 
 use super::App;
 use crate::atlas::{block_tile, item_tile, tile_uv};
+use crate::mesh::{Sun, SHADOW_TONE};
 use crate::particles;
-use crate::ui::{self, ContainerScreen, HudLayer, PauseMenu};
+use crate::ui::{self, ContainerScreen, HudLayer, Panel, PauseMenu};
+
+/// One full dawn-to-dawn in seconds. Presentation only: tick rate, physics,
+/// and spawns never learn what time it is.
+pub const DAY_SECS: f32 = 120.0;
+/// Sun positions are quantized so shadows hold still between remesh waves.
+const SUN_STEPS: u8 = 24;
+/// Chunks re-queued per frame when the sun steps. A full refresh spreads
+/// over ~a second at view distance instead of hitching one frame.
+const REMESH_PER_FRAME: usize = 4;
+
+pub struct Daylight {
+    pub sun_dir: Vec3,
+    pub up: bool,
+    pub brightness: f32,
+    pub sky: [f32; 4],
+    pub step: u8,
+}
+
+/// Client-side derivation from wall time: no protocol change, no sim change.
+pub fn daylight(elapsed_secs: f32) -> Daylight {
+    let t = (elapsed_secs % DAY_SECS) / DAY_SECS;
+    let ang = t * TAU;
+    let elev = ang.sin();
+    let sun_dir = Vec3::new(ang.cos(), elev, 0.35).normalize_or_zero();
+    let up = elev > 0.02;
+    let day = smoothstep(-0.06, 0.22, elev);
+    let brightness = 0.22 + 0.78 * day;
+    let night = [0.015, 0.02, 0.06];
+    let noon = [0.45, 0.70, 0.95];
+    let mut sky = [
+        night[0] + (noon[0] - night[0]) * day,
+        night[1] + (noon[1] - night[1]) * day,
+        night[2] + (noon[2] - night[2]) * day,
+    ];
+    // Dawn/dusk ember while the sun hangs near the horizon.
+    let ember = ((1.0 - elev.abs() * 3.0).clamp(0.0, 1.0)) * if elev > -0.12 { 1.0 } else { 0.0 };
+    sky[0] += (0.98 - sky[0]) * ember * 0.55;
+    sky[1] += (0.55 - sky[1]) * ember * 0.55;
+    sky[2] += (0.35 - sky[2]) * ember * 0.55;
+    Daylight {
+        sun_dir,
+        up,
+        brightness,
+        sky: [sky[0], sky[1], sky[2], 1.0],
+        step: (t * SUN_STEPS as f32).floor() as u8,
+    }
+}
+
+fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn project(cam: Camera, world: Vec3, size: (u32, u32)) -> Option<(f32, f32)> {
+    let vp = Mat4::from_cols_array_2d(&cam.view_proj());
+    let v = vp * world.extend(1.0);
+    if v.w <= 0.0 {
+        return None;
+    }
+    let ndc = Vec3::new(v.x, v.y, v.z) / v.w;
+    if ndc.x.abs() > 1.0 || ndc.y.abs() > 1.0 || ndc.z < -1.0 || ndc.z > 1.0 {
+        return None;
+    }
+    Some((
+        (ndc.x * 0.5 + 0.5) * size.0 as f32,
+        (1.0 - (ndc.y * 0.5 + 0.5)) * size.1 as f32,
+    ))
+}
 
 impl App {
     pub(super) fn render(&mut self) {
-        let Some(renderer) = self.renderer.as_mut() else { return };
-        let Some(window) = &self.window else { return };
-        let size = window.inner_size();
+        let frame_dt = self.last_frame.elapsed();
+        self.last_frame = Instant::now();
+        let dt_ms = frame_dt.as_secs_f64() * 1000.0;
+        self.frame_ema_ms += (dt_ms - self.frame_ema_ms) * 0.05;
+        if self.last_perf_log.elapsed().as_secs() >= 10 {
+            self.last_perf_log = Instant::now();
+            eprintln!(
+                "perf: frame {:.2}ms (~{:.0} fps), mesh {:.2}ms x{}, chunks={} queued={} inflight={}",
+                self.frame_ema_ms,
+                1000.0 / self.frame_ema_ms.max(0.01),
+                self.mesh_ema_ms,
+                self.meshes_done,
+                self.replica.loaded_chunks().count(),
+                self.remesh_queue.len(),
+                self.in_flight.len(),
+            );
+        }
+
+        let size = match &self.window {
+            Some(w) => w.inner_size(),
+            None => return,
+        };
         self.size = (size.width.max(1), size.height.max(1));
         let now_ms = self.start.elapsed().as_millis() as u64;
         let last_tick_ms = now_ms.saturating_sub(self.last_tick.elapsed().as_millis() as u64);
         let partial = partial_tick(now_ms, last_tick_ms);
+
+        // Day rolls on whether paused or not: it is sky, not sim.
+        let light = daylight(self.start.elapsed().as_secs_f32());
+        if light.step != self.sun_step {
+            self.sun_step = light.step;
+            self.sun = Sun {
+                dir: light.sun_dir,
+                up: light.up,
+            };
+            self.queue_sun_refresh();
+            self.sun_was_up = light.up;
+        }
+        for _ in 0..REMESH_PER_FRAME {
+            let Some(pos) = self.remesh_queue.pop_front() else {
+                break;
+            };
+            // A fresher edit already re-queued this chunk: don't double-send.
+            if self.meshed_step.get(&pos) == Some(&self.sun_step) && !self.dirty.contains(&pos) {
+                continue;
+            }
+            self.queue_chunk(pos);
+        }
+
         let pred = self.predict.as_ref();
         let body_pos = pred.map(|p| p.render_pos(partial)).unwrap_or(self.spawn);
         let yaw = pred.map(|p| p.body.yaw).unwrap_or(0.0);
@@ -41,6 +155,7 @@ impl App {
             let (a, b) = tile_uv(item_tile(id));
             (a, b, as_block(id).is_some())
         });
+        let player_shade = pred.map(|p| self.sun_shade(p.body.eye())).unwrap_or(1.0);
         let player = pred.map(|p| PlayerDraw {
             pos: body_pos,
             yaw: p.body.yaw,
@@ -48,6 +163,7 @@ impl App {
             sneaking: p.body.sneaking,
             first_person_arm: !self.third,
             held_uv,
+            shade: player_shade,
         });
 
         let items: Vec<ItemDraw> = self
@@ -56,15 +172,37 @@ impl App {
             .map(|(pos, item)| {
                 let id = item.map(|i| i.0).unwrap_or(0);
                 let (uv0, uv1) = tile_uv(item_tile(id));
+                // Far drops skip the replica march: tiny on screen, and the
+                // day brightness still darkens them at night.
+                let shade = if pos.distance_squared(cam_pos) < 64.0 * 64.0 {
+                    self.sun_shade(*pos + Vec3::Y * 0.2)
+                } else {
+                    1.0
+                };
                 ItemDraw {
                     pos: *pos,
                     yaw: self.start.elapsed().as_secs_f32(),
                     uv_min: uv0,
                     uv_max: uv1,
                     is_block: as_block(id).is_some(),
+                    shade,
                 }
             })
             .collect();
+
+        let mut ground_shadows = Vec::new();
+        if light.up {
+            if pred.is_some() {
+                self.push_shadow(&mut ground_shadows, body_pos, 0.32);
+            }
+            // Same 64-block cap as the shade march: far streaks are
+            // sub-pixel anyway, and the loop stays flat in item count.
+            for (pos, _) in self.items.values() {
+                if pos.distance_squared(cam_pos) < 64.0 * 64.0 {
+                    self.push_shadow(&mut ground_shadows, *pos, 0.16);
+                }
+            }
+        }
 
         particles::tick(&mut self.particles, 1.0 / 60.0);
         if let Some((pos, t0, block)) = self.digging {
@@ -76,6 +214,22 @@ impl App {
         }
 
         let mut ui = ui::UiFrame::new(self.size.0 as f32, self.size.1 as f32);
+        // Sun disc, drawn with the HUD but occluded like scenery: a replica
+        // march from the camera toward the sun hides it behind hills, so it
+        // sets instead of shining through terrain. No new pass, no widget.
+        if light.up && self.sun_visible(cam_pos, light.sun_dir) {
+            let sun_world = cam_pos + light.sun_dir * 400.0;
+            if let Some((sx, sy)) = project(camera, sun_world, self.size) {
+                let r = 14.0 * ui.scale.clamp(2.0, 3.0);
+                Panel::draw(
+                    &mut ui,
+                    Vec2::new(sx - r, sy - r),
+                    Vec2::new(sx + r, sy + r),
+                    [1.0, 0.92, 0.62, 1.0],
+                    0.9,
+                );
+            }
+        }
         let play = self.overlay.is_none() && !self.paused;
         HudLayer::draw(
             &mut ui,
@@ -99,6 +253,7 @@ impl App {
 
         let uploads = std::mem::take(&mut self.pending_upload);
         let removes = std::mem::take(&mut self.pending_remove);
+        let Some(renderer) = self.renderer.as_mut() else { return };
         if let Err(e) = renderer.submit(FrameSubmit {
             camera: Some(camera),
             upload_chunks: uploads,
@@ -106,12 +261,102 @@ impl App {
             particles: particles::draw(&self.particles),
             items,
             player,
+            ground_shadows,
             ui: ui.quads,
             size: self.size,
-            clear: [0.45, 0.70, 0.95, 1.0],
+            clear: light.sky,
+            sun_dir: light.sun_dir,
+            brightness: light.brightness,
         }) {
             eprintln!("submit: {e}");
         }
-        window.request_redraw();
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
+    /// How lit is this point: 1.0 in sun, SHADOW_TONE behind terrain.
+    /// Same march the mesher bakes, so bodies agree with blocks.
+    fn sun_shade(&self, from: Vec3) -> f32 {
+        if !self.sun.up {
+            return 1.0;
+        }
+        let mut p = from;
+        let step = self.sun.dir * 0.5;
+        for _ in 0..40 {
+            p += step;
+            let b = BlockPos::from_vec3(p);
+            if b.x == from.x.floor() as i32 && b.y == from.y.floor() as i32 && b.z == from.z.floor() as i32 {
+                continue;
+            }
+            if self.replica.block(b) != 0 {
+                return SHADOW_TONE;
+            }
+        }
+        1.0
+    }
+
+    /// Clear line from the camera toward the sun? Marches the live replica,
+    /// so the sun disc sets behind hills instead of shining through them.
+    fn sun_visible(&self, from: Vec3, dir: Vec3) -> bool {
+        let mut p = from;
+        let step = dir * 2.0;
+        for _ in 0..150 {
+            p += step;
+            if self.replica.block(BlockPos::from_vec3(p)) != 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// One streak from a body's feet away from the sun, parked on the ground.
+    /// Searches a full fall's worth down: jumping bodies keep their streak.
+    fn push_shadow(&self, out: &mut Vec<GroundShadow>, feet: Vec3, half: f32) {
+        let fx = feet.x.floor() as i32;
+        let fz = feet.z.floor() as i32;
+        let mut ground = None;
+        for y in (feet.y.floor() as i32 - 12..=feet.y.floor() as i32 + 1).rev() {
+            if self.replica.block(BlockPos::new(fx, y, fz)) != 0 {
+                ground = Some(y as f32 + 1.0 + 0.02);
+                break;
+            }
+        }
+        let Some(gy) = ground else { return };
+        let elev = self.sun.dir.y.max(0.12);
+        let away = Vec2::new(-self.sun.dir.x, -self.sun.dir.z);
+        let horizontal = away.length().max(1e-3);
+        out.push(GroundShadow {
+            foot: Vec3::new(feet.x, gy, feet.z),
+            run: [away.x / horizontal, away.y / horizontal],
+            len: (1.6 / elev).clamp(0.8, 4.5),
+            half,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn day_is_two_minutes_from_dawn() {
+        // t=0 rises in the east; noon is full bright; midnight is the
+        // navigable floor; the cycle closes exactly.
+        let dawn = daylight(0.0);
+        assert!(dawn.sun_dir.x > 0.9, "dawn sun not east: {:?}", dawn.sun_dir);
+        assert!((-0.05..0.05).contains(&dawn.sun_dir.y));
+        assert_eq!(daylight(DAY_SECS).step, dawn.step);
+        assert_eq!(daylight(DAY_SECS).sun_dir, dawn.sun_dir);
+        let noon = daylight(DAY_SECS * 0.25);
+        assert!((noon.brightness - 1.0).abs() < 1e-6);
+        assert!(noon.sun_dir.y > 0.9);
+        let midnight = daylight(DAY_SECS * 0.75);
+        assert!((midnight.brightness - 0.22).abs() < 1e-9);
+        assert!(!midnight.up);
+        for t in [0.0, 15.0, 30.0, 60.0, 90.0, 105.0] {
+            let b = daylight(t).brightness;
+            assert!((0.22..=1.0).contains(&b), "brightness {b} at t={t}");
+        }
     }
 }

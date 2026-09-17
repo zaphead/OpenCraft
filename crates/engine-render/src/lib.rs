@@ -10,5 +10,6 @@ pub mod platform;
 pub use device::RenderError;
 pub use gpu::Renderer;
 pub use submit::{
-    Camera, FrameSubmit, ItemDraw, MeshData, ParticleDraw, PlayerDraw, TextureId, UiQuad, Vertex,
+    Camera, FrameSubmit, GroundShadow, ItemDraw, MeshData, ParticleDraw, PlayerDraw, TextureId, UiQuad,
+    Vertex, ANCHOR_UV,
 };

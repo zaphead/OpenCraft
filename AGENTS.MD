@@ -1,6 +1,6 @@
 # OpenCraft
 
-This repo is a from-scratch Minecraft-shaped voxel game in Rust: our engines, our protocol, Java-like 20-tick feel, native Mac now and Windows later. Leftover files in the tree are not authority; this document is. The block roster, crafting recipes, worldgen, and other game content are **not** specified here — they get their own design spec next.
+This repo is a from-scratch voxel game in Rust: our engines, our protocol, Java-like 20-tick feel, native Mac now and Windows later. Leftover files in the tree are not authority; this document is. The block roster, crafting recipes, worldgen, and other game content are **not** specified here — they get their own design spec next.
 
 ## Agent law
 
@@ -55,33 +55,33 @@ engine-core    --> (std + allowed math/infra only)
 
 These are not taste. Breaking them is a failed change.
 
-1. **Spiritual clone, not a wrapper.** Custom protocol. Custom world saves. We do not speak Mojang's net protocol and we do not load Anvil/vanilla worlds.
+1. **Spiritual clone, not a wrapper.** Custom protocol. Custom world saves. No outside net protocols, no foreign world formats.
 2. **Server is god.** 20 TPS, 50 ms ticks. The client predicts the local player, interpolates everyone else, and applies server corrections. Clients do not authoritatively place/break/move.
-3. **Java Edition body clock.** Movement, drag, accel, sneak/sprint, jump, and AABB stepped collision reimplement **public Java-edition physics knowledge**. Then we feel-test. We do not decompile Mojang code.
-4. **wgpu is a rental.** `engine-render` exposes *our* command/resource API (buffers, textures, meshes, draw lists, frame submit). wgpu (later Metal/DX12/Vulkan) is a private backend. `game`, `world`, `server`, and `client` gameplay code never see wgpu types.
+3. **Body clock.** Movement, drag, accel, sneak/sprint, jump, and AABB stepped collision reimplement **publicly documented physics knowledge**. Then we feel-test. No decompiled code.
+4. **wgpu is a rental.** `engine-render` exposes _our_ command/resource API (buffers, textures, meshes, draw lists, frame submit). wgpu (later Metal/DX12/Vulkan) is a private backend. `game`, `world`, `server`, and `client` gameplay code never see wgpu types.
 5. **cpal/winit are rentals too.** Same isolation: our input events, our mixer API, our surface/window handoff. Platform types stay in the platform-facing crate/module that owns them.
 6. **Chunks are not entities.** 16×16×16 paletted sections stacked into chunks. World height is a later game spec. Entities (players, mobs, items) are a tiny custom store: generational IDs + SoA components. No general ECS, no hecs/bevy, no chunks-as-entities.
 7. **Thread graph is fixed.** Render thread (uncapped FPS). Server/sim thread (20 TPS). Audio thread. Chunk-gen + mesh worker pool. No sim on the render thread. No GPU work on the sim thread. No audio mixing on the sim thread.
 8. **Headless server is real.** Dedicated server must build and run with no window, GPU, or audio. Sim, physics, protocol, and world are tested that way.
 9. **Mac daily, Windows honest.** Public APIs stay portable. No Metal-only (or Win-only) types leak across crate boundaries. We dogfood macOS; we do not write Mac-shaped architecture.
-10. **Pack-shaped assets, one vendored pack.** The loader understands Java resource-pack layout and vanilla skin format. The repo vendors exactly one community pack (`assets/pack/`, VanillaTweaks defaults, unmodified, with its license/attribution file) so the game looks right out of the box; user-provided packs at runtime still override it. Do not commit raw Mojang/Microsoft rips (jar-extracted textures, sounds, skins, fonts, Anvil worlds).
+10. **Pack-shaped assets, one vendored pack.** The loader understands resource-pack layout and skin format. The repo vendors exactly one community pack (`assets/pack/`, VanillaTweaks defaults, unmodified, with its license/attribution file) so the game looks right out of the box; user-provided packs at runtime still override it. Do not commit third-party rips.
 
 ## Crate map
 
 Keep this graph small. Names below are the intended workspace. Do not add crates without approval.
 
-| Crate | Owns | Must not own |
-| --- | --- | --- |
-| `engine-core` | Time/tick, IDs, math re-exports (`glam`), small collections, shared error types | GPU, audio, window, game rules, IO protocol |
-| `engine-phys` | AABB, swept/stepped voxel collision, Java-like character movement used by **both** server authority and client prediction | Rendering, net, items, crafting |
-| `engine-input` | Our input snapshot/events, bindings | winit types, gameplay decisions |
-| `engine-render` | Scene submit API, meshing-to-GPU upload, frame graph, backends | World mutation, block rules, wgpu types in the public API |
-| `engine-audio` | Mixer, positional voices, volume categories (master/music/players/weather) | Gameplay, cpal types in the public API |
-| `world` | Sections/chunks/palettes, entity store, spatial queries, chunk interest | GPU meshes as truth, protocol bytes, recipes |
-| `protocol` | Message enums, versioning, binary codec, client/server framing | wgpu, filesystems, game balance numbers beyond what the wire must carry |
-| `game` | OpenCraft rules once specced (blocks, items, crafting, interactions) | Renderer, OS, "just dump this draw call" |
-| `server` | Tick loop, authority, player sessions, interest, persistence hooks, embeddable + dedicated entry | Window, GPU, audio device |
-| `client` | Window, render interpolations, local prediction, HUD/menus, pack load, optional embedded server | A second copy of sim rules |
+| Crate           | Owns                                                                                                                      | Must not own                                                            |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `engine-core`   | Time/tick, IDs, math re-exports (`glam`), small collections, shared error types                                           | GPU, audio, window, game rules, IO protocol                             |
+| `engine-phys`   | AABB, swept/stepped voxel collision, Java-like character movement used by **both** server authority and client prediction | Rendering, net, items, crafting                                         |
+| `engine-input`  | Our input snapshot/events, bindings                                                                                       | winit types, gameplay decisions                                         |
+| `engine-render` | Scene submit API, meshing-to-GPU upload, frame graph, backends                                                            | World mutation, block rules, wgpu types in the public API               |
+| `engine-audio`  | Mixer, positional voices, volume categories (master/music/players/weather)                                                | Gameplay, cpal types in the public API                                  |
+| `world`         | Sections/chunks/palettes, entity store, spatial queries, chunk interest                                                   | GPU meshes as truth, protocol bytes, recipes                            |
+| `protocol`      | Message enums, versioning, binary codec, client/server framing                                                            | wgpu, filesystems, game balance numbers beyond what the wire must carry |
+| `game`          | OpenCraft rules once specced (blocks, items, crafting, interactions)                                                      | Renderer, OS, "just dump this draw call"                                |
+| `server`        | Tick loop, authority, player sessions, interest, persistence hooks, embeddable + dedicated entry                          | Window, GPU, audio device                                               |
+| `client`        | Window, render interpolations, local prediction, HUD/menus, pack load, optional embedded server                           | A second copy of sim rules                                              |
 
 Binaries: `client`, `server`. The client may start an embedded server for SP/listen. That embed is a function call into the `server` crate, not a fork of its logic.
 
@@ -95,11 +95,11 @@ Binaries: `client`, `server`. The client may start an embedded server for SP/lis
 
 **Net.** Snapshot/interest for ~20 players. Local player: predict, replay, correct. Others: interpolate from server poses. Do not build lockstep. Do not trust the client.
 
-**Coords.** Y-up, right-handed, Minecraft Java-shaped (+X east, +Z south). One `glam` stack everywhere. Do not introduce a second math crate or a render-only coordinate space without an explicit conversion type.
+**Coords.** Y-up, right-handed (+X east, +Z south). One `glam` stack everywhere. Do not introduce a second math crate or a render-only coordinate space without an explicit conversion type.
 
 ## Rendering, audio, UI
 
-- Renderer consumes *submitted* geometry/materials/camera from the client. It does not decide what a block is.
+- Renderer consumes _submitted_ geometry/materials/camera from the client. It does not decide what a block is.
 - Own bitmap/voxel-game UI. No egui (or other imgui) in shipped gameplay menus. Debug overlays are not an excuse to make the pause screen in egui.
 - Own mixer on cpal: positional + categories. Sounds are pack-driven. The mixer is an engine, not `audio.play("foo.mp3")` sprinkled through game rules.
 
@@ -113,7 +113,7 @@ Daily target on Apple Silicon: **uncapped render, locked 20 TPS, ~20 chunk rende
 
 **Default deny.** Everything else (image codecs, extra ECS, physics engines, UI kits, async runtimes, networking frameworks, logging stacks, `bevy-*`) needs user approval and an allowlist edit here.
 
-Hot path is not JSON. Packs may be JSON because vanilla packs are. Protocol and world saves are binary.
+Hot path is not JSON. Pack files may be JSON because pack formats are. Protocol and world saves are binary.
 
 ## Rust patterns
 
@@ -134,9 +134,9 @@ Hot path is not JSON. Packs may be JSON because vanilla packs are. Protocol and 
 
 ## Banned moves
 
-- Vanilla protocol compatibility, Anvil loaders, or "temporary" Mojang net packets.
-- Committing raw Mojang/Microsoft rips (jar-extracted textures, sounds, skins, fonts, Anvil worlds). The one vendored community pack named in invariant 10 is the only exception.
-- Decompiling or pasting Mojang source.
+- Outside protocol compatibility, foreign world loaders, or "temporary" third-party net packets.
+- Committing third-party rips. The one vendored community pack named in invariant 10 is the only exception.
+- Decompiling or pasting third-party source.
 - Simulating on the render thread, or issuing GPU work from the server tick.
 - Leaking `wgpu`/`winit`/`cpal` types into `game`, `world`, or `server`.
 - A second character controller "just for the client."

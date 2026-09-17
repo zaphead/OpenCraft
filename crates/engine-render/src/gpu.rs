@@ -1,7 +1,7 @@
 use crate::device::{Gpu, GpuMesh, RenderError};
-use crate::emit::{emit_held, emit_items, emit_particles, emit_player, emit_ui_quad};
+use crate::emit::{emit_ground_shadows, emit_held, emit_items, emit_particles, emit_player, emit_ui_quad};
 use crate::submit::{FrameSubmit, MeshData, TextureId};
-use engine_core::ChunkPos;
+use engine_core::{ChunkPos, Mat4, Vec3, MAX_Y, MIN_Y};
 use rustc_hash::FxHashMap;
 
 pub struct Renderer {
@@ -61,6 +61,7 @@ impl Renderer {
         let atlas_bg = self.tex(self.atlas);
         let ui_bg_tex = self.tex(self.ui_tex);
         let skin_bg = self.tex(self.skin);
+        let cull = frame.camera.map(|c| Frustum::from_view_proj(c.view_proj()));
 
         let mut encoder = self
             .gpu
@@ -76,6 +77,7 @@ impl Renderer {
             &dynamic,
             &atlas_bg,
             &skin_bg,
+            cull.as_ref(),
         );
         Self::draw_ui(&mut encoder, &view, &self.gpu, &frame.ui, &ui_bg_tex);
 
@@ -121,6 +123,10 @@ impl Renderer {
             let vp = cam.view_proj();
             self.gpu.queue.write_buffer(&self.gpu.cam_buf, 0, bytemuck::bytes_of(&vp));
         }
+        let sun: [f32; 4] = [frame.sun_dir.x, frame.sun_dir.y, frame.sun_dir.z, frame.brightness];
+        self.gpu
+            .queue
+            .write_buffer(&self.gpu.cam_buf, 64, bytemuck::bytes_of(&sun));
         let screen = [self.gpu.size.0 as f32, self.gpu.size.1 as f32, 0.0, 0.0];
         self.gpu
             .queue
@@ -138,6 +144,7 @@ impl Renderer {
         if let Some(cam) = frame.camera {
             emit_particles(&mut dyn_mesh, &frame.particles, cam);
             emit_items(&mut dyn_mesh, &frame.items);
+            emit_ground_shadows(&mut dyn_mesh, &frame.ground_shadows);
         }
         let mut player_mesh = MeshData::default();
         if let Some(p) = &frame.player {
@@ -164,6 +171,7 @@ impl Renderer {
         dynamic: &DynamicMeshes,
         atlas_bg: &wgpu::BindGroup,
         skin_bg: &wgpu::BindGroup,
+        cull: Option<&Frustum>,
     ) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("world"),
@@ -194,7 +202,10 @@ impl Renderer {
         pass.set_pipeline(&gpu.terrain_pipe);
         pass.set_bind_group(0, &gpu.cam_bg, &[]);
         pass.set_bind_group(1, atlas_bg, &[]);
-        for mesh in chunks.values() {
+        for (pos, mesh) in chunks.iter() {
+            if cull.is_some_and(|f| !f.sees_chunk(*pos)) {
+                continue;
+            }
             draw_mesh(&mut pass, mesh);
         }
         if let Some(m) = &dynamic.dyn_gpu {
@@ -249,6 +260,63 @@ struct DynamicMeshes {
     dyn_gpu: Option<GpuMesh>,
     player_gpu: Option<GpuMesh>,
     held_gpu: Option<GpuMesh>,
+}
+
+/// Six normalized frustum planes from a column-major view-projection matrix.
+/// Chunk AABBs outside any plane skip their draw call: the one CPU-side cut
+/// that matters at ~12 chunks of view distance.
+struct Frustum {
+    planes: [[f32; 4]; 6],
+}
+
+impl Frustum {
+    fn from_view_proj(vp: [[f32; 4]; 4]) -> Self {
+        let m = Mat4::from_cols_array_2d(&vp);
+        let rows = [m.row(0), m.row(1), m.row(2), m.row(3)];
+        let r = |i: usize| [rows[i].x, rows[i].y, rows[i].z, rows[i].w];
+        let (r0, r1, r2, r3) = (r(0), r(1), r(2), r(3));
+        let mut f = Self {
+            planes: [
+                add(r3, r0),
+                sub(r3, r0),
+                add(r3, r1),
+                sub(r3, r1),
+                add(r3, r2),
+                sub(r3, r2),
+            ],
+        };
+        for p in f.planes.iter_mut() {
+            let l = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt().max(1e-6);
+            p[0] /= l;
+            p[1] /= l;
+            p[2] /= l;
+            p[3] /= l;
+        }
+        f
+    }
+
+    fn sees_chunk(&self, pos: ChunkPos) -> bool {
+        let min = Vec3::new(pos.x as f32 * 16.0, MIN_Y as f32, pos.z as f32 * 16.0);
+        let max = min + Vec3::new(16.0, (MAX_Y - MIN_Y) as f32, 16.0);
+        for p in self.planes.iter() {
+            // p-vertex: the corner most likely inside this plane.
+            let px = if p[0] >= 0.0 { max.x } else { min.x };
+            let py = if p[1] >= 0.0 { max.y } else { min.y };
+            let pz = if p[2] >= 0.0 { max.z } else { min.z };
+            if p[0] * px + p[1] * py + p[2] * pz + p[3] < 0.0 {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+fn add(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]]
+}
+
+fn sub(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]]
 }
 
 fn draw_mesh(pass: &mut wgpu::RenderPass<'_>, mesh: &GpuMesh) {

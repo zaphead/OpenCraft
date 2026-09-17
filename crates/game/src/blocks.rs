@@ -7,6 +7,7 @@ pub const LOG: u16 = 5;
 pub const PLANKS: u16 = 6;
 pub const CRAFTING_TABLE: u16 = 7;
 pub const CHEST: u16 = 8;
+pub const LEAVES: u16 = 9;
 
 pub fn is_solid(id: u16) -> bool {
     id != AIR
