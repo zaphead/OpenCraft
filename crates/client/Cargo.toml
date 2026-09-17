@@ -1,0 +1,24 @@
+[package]
+name = "client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "client"
+path = "src/main.rs"
+
+[dependencies]
+engine-core.workspace = true
+engine-phys.workspace = true
+engine-input.workspace = true
+engine-render.workspace = true
+engine-audio.workspace = true
+protocol.workspace = true
+game.workspace = true
+world.workspace = true
+server.workspace = true
+anyhow.workspace = true
+winit.workspace = true
+png.workspace = true
+jpeg-decoder.workspace = true

@@ -1,0 +1,42 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/engine-core",
+    "crates/engine-phys",
+    "crates/engine-input",
+    "crates/engine-render",
+    "crates/engine-audio",
+    "crates/world",
+    "crates/protocol",
+    "crates/game",
+    "crates/server",
+    "crates/client",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+glam = "0.29"
+bytemuck = { version = "1", features = ["derive"] }
+thiserror = "2"
+anyhow = "1"
+parking_lot = "0.12"
+rustc-hash = "2"
+winit = "0.30"
+wgpu = "24"
+cpal = "0.15"
+png = "0.17"
+jpeg-decoder = "0.3"
+lewton = "0.10"
+engine-core = { path = "crates/engine-core" }
+engine-phys = { path = "crates/engine-phys" }
+engine-input = { path = "crates/engine-input" }
+engine-render = { path = "crates/engine-render" }
+engine-audio = { path = "crates/engine-audio" }
+world = { path = "crates/world" }
+protocol = { path = "crates/protocol" }
+game = { path = "crates/game" }
+server = { path = "crates/server" }
