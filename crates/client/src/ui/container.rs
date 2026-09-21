@@ -37,7 +37,8 @@ impl ContainerScreen {
         let (pw, ph) = match kind {
             OpenKind::Inventory => (176.0 * s, 166.0 * s),
             OpenKind::CraftingTable => (176.0 * s, 166.0 * s),
-            OpenKind::Chest => (176.0 * s, 168.0 * s),
+            OpenKind::Chest | OpenKind::Vault => (176.0 * s, 168.0 * s),
+            OpenKind::Etch | OpenKind::Brew | OpenKind::Trade => (176.0 * s, 150.0 * s),
         };
         let origin = Vec2::new((ui.size.x - pw) * 0.5, (ui.size.y - ph) * 0.5);
         Panel::draw(ui, origin, origin + Vec2::new(pw, ph), [0.78, 0.78, 0.78, 1.0], 0.1);
@@ -54,7 +55,10 @@ impl ContainerScreen {
         let kind_w = match kind {
             OpenKind::Inventory => WindowKind::Inventory,
             OpenKind::CraftingTable => WindowKind::CraftingTable,
-            OpenKind::Chest => WindowKind::Chest,
+            OpenKind::Chest | OpenKind::Vault => WindowKind::Chest,
+            OpenKind::Etch => WindowKind::Etch,
+            OpenKind::Brew => WindowKind::Brew,
+            OpenKind::Trade => WindowKind::Trade,
         };
         let map = layout(kind_w);
         match kind {
@@ -72,13 +76,37 @@ impl ContainerScreen {
                 SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 84.0 * s), 9, 3, map.main, stride, &mut hits);
                 SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 142.0 * s), 9, 1, map.hotbar, stride, &mut hits);
             }
-            OpenKind::Chest => {
-                Text::draw(ui, origin + Vec2::new(8.0 * s, 6.0 * s), "Chest", [0.15, 0.15, 0.15, 1.0], 0.02);
+            OpenKind::Chest | OpenKind::Vault => {
+                Text::draw(ui, origin + Vec2::new(8.0 * s, 6.0 * s), if kind == OpenKind::Vault { "Vault" } else { "Chest" }, [0.15, 0.15, 0.15, 1.0], 0.02);
                 if let Some(chest_base) = map.chest {
                     SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 18.0 * s), 9, 3, chest_base, stride, &mut hits);
                 }
                 SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 84.0 * s), 9, 3, map.main, stride, &mut hits);
                 SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 142.0 * s), 9, 1, map.hotbar, stride, &mut hits);
+            }
+            OpenKind::Etch => {
+                Text::draw(ui, origin + Vec2::new(8.0 * s, 6.0 * s), "Etch", [0.15, 0.15, 0.15, 1.0], 0.02);
+                draw_one(ui, inv, origin + Vec2::new(30.0 * s, 28.0 * s), map.craft, stride, &mut hits);
+                let bmin = origin + Vec2::new(70.0 * s, 28.0 * s);
+                let bmax = bmin + Vec2::new(50.0 * s, 18.0 * s);
+                let hover = cursor.x >= bmin.x && cursor.x <= bmax.x && cursor.y >= bmin.y && cursor.y <= bmax.y;
+                let _etch = super::prim::Button::draw(ui, bmin, bmax, "Etch", false, hover);
+                hits.push((u16::MAX - 1, bmin, bmax));
+                SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 70.0 * s), 9, 3, map.main, stride, &mut hits);
+                SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 124.0 * s), 9, 1, map.hotbar, stride, &mut hits);
+            }
+            OpenKind::Brew => {
+                Text::draw(ui, origin + Vec2::new(8.0 * s, 6.0 * s), "Brew", [0.15, 0.15, 0.15, 1.0], 0.02);
+                SlotGrid::draw(ui, inv, origin + Vec2::new(30.0 * s, 24.0 * s), 3, 1, map.craft, stride, &mut hits);
+                draw_one(ui, inv, origin + Vec2::new(110.0 * s, 24.0 * s), map.result, stride, &mut hits);
+                SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 70.0 * s), 9, 3, map.main, stride, &mut hits);
+                SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 124.0 * s), 9, 1, map.hotbar, stride, &mut hits);
+            }
+            OpenKind::Trade => {
+                Text::draw(ui, origin + Vec2::new(8.0 * s, 6.0 * s), "Sage", [0.15, 0.15, 0.15, 1.0], 0.02);
+                SlotGrid::draw(ui, inv, origin + Vec2::new(30.0 * s, 24.0 * s), 3, 1, map.craft, stride, &mut hits);
+                SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 70.0 * s), 9, 3, map.main, stride, &mut hits);
+                SlotGrid::draw(ui, inv, origin + Vec2::new(8.0 * s, 124.0 * s), 9, 1, map.hotbar, stride, &mut hits);
             }
         }
         if let Some((id, n)) = inv.cursor {

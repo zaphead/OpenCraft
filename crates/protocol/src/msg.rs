@@ -36,6 +36,7 @@ pub enum ClientPlay {
     },
     CloseWindow,
     OpenInventory,
+    PressButton { id: u8 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,12 +44,22 @@ pub enum OpenKind {
     Inventory,
     CraftingTable,
     Chest,
+    Etch,
+    Brew,
+    Trade,
+    Vault,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParticleKind {
     Break,
     Place,
+    Hearts,
+    Steam,
+    Spore,
+    Leaf,
+    Sting,
+    Wisp,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,6 +69,8 @@ pub enum SoundKind {
     Place,
     Hurt,
     Pickup,
+    Call,
+    Hum,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -99,18 +112,27 @@ pub enum ServerPlay {
         on_ground: bool,
         health: u8,
         fall_distance: f32,
+        ride: u8,
+        rooted: u8,
+        fx: u8,
+        adv: u16,
     },
     EntitySpawn {
         id: EntityId,
         kind: u8,
         pos: Vec3,
         item: Option<(u16, u8)>,
+        hp: u8,
+        state: u8,
+        variant: u8,
     },
     EntityPos {
         id: EntityId,
         pos: Vec3,
         yaw: f32,
         pitch: f32,
+        hp: u8,
+        state: u8,
     },
     EntityDespawn {
         id: EntityId,

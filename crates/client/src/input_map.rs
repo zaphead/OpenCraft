@@ -24,6 +24,8 @@ pub fn apply_key(snap: &mut Snapshot, event: &KeyEvent) {
         KeyCode::Escape => snap.pause = down,
         KeyCode::F2 => snap.debug = down,
         KeyCode::F5 => snap.perspective = down,
+        KeyCode::KeyC => snap.zoom = down,
+        KeyCode::F12 => snap.screenshot = down,
         KeyCode::Digit1 => {
             if down {
                 snap.hotbar = Some(0);
@@ -83,6 +85,10 @@ pub fn apply_mouse_button(snap: &mut Snapshot, button: MouseButton, state: Eleme
         MouseButton::Right => {
             snap.use_item = down;
             snap.right_click = down;
+        }
+        MouseButton::Middle => {
+            snap.pick = down;
+            snap.pick_click = down;
         }
         _ => {}
     }

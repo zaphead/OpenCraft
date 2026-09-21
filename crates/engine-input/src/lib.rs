@@ -17,6 +17,9 @@ pub struct Snapshot {
     pub perspective: bool,
     pub attack: bool,
     pub use_item: bool,
+    pub pick: bool,
+    pub zoom: bool,
+    pub screenshot: bool,
     pub hotbar: Option<u8>,
     pub scroll: i32,
     pub look_delta: Vec2,
@@ -24,6 +27,7 @@ pub struct Snapshot {
     pub cursor_in_window: bool,
     pub left_click: bool,
     pub right_click: bool,
+    pub pick_click: bool,
     pub shift: bool,
 }
 
@@ -57,6 +61,8 @@ pub struct Edges {
     pub right_press: bool,
     pub left_release: bool,
     pub right_release: bool,
+    pub pick_press: bool,
+    pub screenshot_press: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -75,6 +81,8 @@ impl Tracker {
             right_press: now.right_click && !self.prev.right_click,
             left_release: !now.left_click && self.prev.left_click,
             right_release: !now.right_click && self.prev.right_click,
+            pick_press: now.pick_click && !self.prev.pick_click,
+            screenshot_press: now.screenshot && !self.prev.screenshot,
         };
         self.prev = now;
         e

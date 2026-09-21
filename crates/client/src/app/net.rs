@@ -50,6 +50,10 @@ impl App {
         }
         if self.pause_back.as_ref().is_some_and(|b| b.hit(c)) {
             self.set_paused(false);
+            self.adv_open = false;
+        }
+        if self.pause_adv.as_ref().is_some_and(|b| b.hit(c)) {
+            self.adv_open = !self.adv_open;
         }
         if self.pause_quit.as_ref().is_some_and(|q| q.hit(c)) {
             self.confirm_quit = true;
@@ -101,7 +105,7 @@ impl App {
                 self.inv = inventory;
                 self.last_tick = Instant::now();
             }
-            ServerPlay::KeepTick { .. } => {}
+            ServerPlay::KeepTick { tick } => self.server_tick = tick,
             ServerPlay::Chunk { pos, sections } => {
                 replica::apply_chunk(&mut self.replica, pos, &sections);
                 self.queue_chunk(pos);
@@ -121,25 +125,52 @@ impl App {
                 on_ground,
                 health,
                 fall_distance,
+                ride,
+                rooted,
+                fx,
+                adv,
                 ..
             } => {
                 self.health = health;
+                self.ride = ride;
+                self.rooted = rooted != 0;
+                self.swift = fx & 4 != 0;
+                self.glow = fx & 2 != 0;
+                self.adv = adv;
                 if let Some(p) = &mut self.predict {
                     p.correct(pos, vel, on_ground, health, fall_distance);
                 }
+                let _ = fx;
             }
-            ServerPlay::EntitySpawn { id, pos, item, kind } => {
+            ServerPlay::EntitySpawn {
+                id,
+                pos,
+                item,
+                kind,
+                hp,
+                state,
+                variant,
+            } => {
                 if kind == 1 {
                     self.items.insert(id, (pos, item));
+                } else {
+                    self.mobs.insert(id, super::MobSeen { kind, pos, yaw: 0.0, hp, state, variant });
                 }
             }
-            ServerPlay::EntityPos { id, pos, .. } => {
+            ServerPlay::EntityPos { id, pos, yaw, hp, state, .. } => {
                 if let Some(e) = self.items.get_mut(&id) {
                     e.0 = pos;
+                }
+                if let Some(m) = self.mobs.get_mut(&id) {
+                    m.pos = pos;
+                    m.yaw = yaw;
+                    m.hp = hp;
+                    m.state = state;
                 }
             }
             ServerPlay::EntityDespawn { id } => {
                 self.items.remove(&id);
+                self.mobs.remove(&id);
             }
             ServerPlay::Inventory(inv) => self.inv = inv,
             ServerPlay::OpenWindow { kind, .. } => {
@@ -157,6 +188,12 @@ impl App {
                 let n = match kind {
                     ParticleKind::Break => 16,
                     ParticleKind::Place => 8,
+                    ParticleKind::Hearts => 6,
+                    ParticleKind::Steam => 4,
+                    ParticleKind::Spore => 10,
+                    ParticleKind::Leaf => 5,
+                    ParticleKind::Sting => 4,
+                    ParticleKind::Wisp => 3,
                 };
                 particles::burst(&mut self.particles, pos, tile, n, 0.08);
             }
@@ -167,9 +204,11 @@ impl App {
                     SoundKind::Place => &self.sounds.place,
                     SoundKind::Hurt => &self.sounds.hurt,
                     SoundKind::Pickup => &self.sounds.pickup,
+                    SoundKind::Call | SoundKind::Hum => &self.sounds.pickup,
                 };
                 let cat = match kind {
-                    SoundKind::Hurt | SoundKind::Step => Category::Players,
+                    SoundKind::Hurt | SoundKind::Step | SoundKind::Call => Category::Players,
+                    SoundKind::Hum => Category::Music,
                     SoundKind::Break | SoundKind::Place | SoundKind::Pickup => Category::Master,
                 };
                 if let Some(id) = ids.first() {

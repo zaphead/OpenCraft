@@ -15,17 +15,35 @@ impl HudLayer {
         debug: Option<engine_core::Vec3>,
         show_hotbar: bool,
         show_crosshair: bool,
+        boss: Option<(&str, u8, u8)>,
     ) {
         if show_crosshair {
             Crosshair::draw(ui);
         }
         if show_hotbar {
+            if let Some((name, hp, max)) = boss {
+                BossBar::draw(ui, name, hp, max);
+            }
             HeartRow::draw(ui, health);
             Hotbar::draw(ui, inv);
         }
         if let Some(p) = debug {
             DebugMeter::draw(ui, p);
         }
+    }
+}
+
+pub struct BossBar;
+
+impl BossBar {
+    pub fn draw(ui: &mut UiFrame, name: &str, hp: u8, max: u8) {
+        let s = ui.scale;
+        let w = 140.0 * s;
+        let origin = Vec2::new((ui.size.x - w) * 0.5, ui.size.y - 48.0 * s);
+        Panel::draw(ui, origin, origin + Vec2::new(w, 10.0 * s), [0.1, 0.1, 0.1, 0.9], 0.04);
+        let fill = w * (hp as f32 / max.max(1) as f32);
+        Panel::draw(ui, origin, origin + Vec2::new(fill.max(2.0), 10.0 * s), [0.55, 0.12, 0.12, 1.0], 0.03);
+        Text::draw(ui, origin + Vec2::new(4.0 * s, -10.0 * s), name, [1.0, 0.9, 0.85, 1.0], 0.02);
     }
 }
 

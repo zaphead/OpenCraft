@@ -34,6 +34,7 @@ impl Sim {
                     sprint: *sprint,
                     yaw: *yaw,
                     pitch: *pitch,
+                    ..MoveInput::default()
                 };
                 self.player.body.yaw = *yaw;
                 self.player.body.pitch = *pitch;
@@ -42,10 +43,18 @@ impl Sim {
                 if self.player.window.is_some() {
                     return;
                 }
+                let cd = self.player.hurt_cd;
+                self.strike(out);
+                if self.player.hurt_cd != cd {
+                    return;
+                }
                 if !in_reach(&self.player, *pos) {
                     return;
                 }
-                self.player.digging = Some((*pos, 0));
+                let block = self.world.block(*pos);
+                if block != 0 && block != game::blocks::WATER && block != game::blocks::LAVA && block != game::blocks::SPRING {
+                    self.player.digging = Some((*pos, 0));
+                }
             }
             ClientPlay::CancelDig => {
                 self.player.digging = None;
@@ -65,6 +74,9 @@ impl Sim {
             ClientPlay::ClickSlot { slot, button, shift } => {
                 if let Some(mut w) = self.player.window.take() {
                     click_slot(&mut w, *slot, *button, *shift);
+                    if matches!(w.kind, WindowKind::Chest | WindowKind::Vault) {
+                        self.wake_sentinels();
+                    }
                     sync_player_from_window(&mut self.player, &w);
                     persist_chest(self, &w);
                     self.player.window = Some(w);
@@ -85,6 +97,16 @@ impl Sim {
                 });
                 emit(out, ServerPlay::Inventory(snap_inv(&self.player)));
             }
+            ClientPlay::PressButton { id } => {
+                if *id == 1 {
+                    if let Some(w) = self.player.window.as_mut() {
+                        if game::etch_tool(w) {
+                            self.player.adv |= game::ADV_ETCH;
+                        }
+                    }
+                    emit(out, ServerPlay::Inventory(snap_inv(&self.player)));
+                }
+            }
         }
     }
 
@@ -92,6 +114,7 @@ impl Sim {
         if self.player.window.is_none() {
             tick_body(&mut self.player.body, self.player.input, &self.world);
         }
+        self.after_body(out);
         let landed = self.player.body.on_ground && !self.player.last_on_ground;
         self.player.last_on_ground = self.player.body.on_ground;
         if landed {
@@ -131,7 +154,7 @@ impl Sim {
         }
     }
 
-    fn die(&mut self, out: &Sender<ServerPlay>) {
+    pub(super) fn die(&mut self, out: &Sender<ServerPlay>) {
         let pos = self.player.body.pos + Vec3::new(0.0, 0.4, 0.0);
         let mut drops = drop_all(&mut self.player.hotbar, &mut self.player.main);
         if let Some(w) = self.player.window.take() {
@@ -153,6 +176,9 @@ impl Sim {
                 kind: 1,
                 pos,
                 item: Some((id, n)),
+                hp: 0,
+                state: 0,
+                variant: 0,
             });
         }
         self.player.body = engine_phys::Body::at(self.player.spawn);
@@ -174,7 +200,7 @@ impl Sim {
             return;
         }
         let block = self.world.block(pos);
-        if !is_solid(block) {
+        if block == 0 || block == game::blocks::WATER || block == game::blocks::LAVA {
             self.player.digging = None;
             return;
         }
@@ -198,11 +224,15 @@ impl Sim {
                         kind: 1,
                         pos: pos.center(),
                         item: Some(s),
+                    hp: 0,
+                    state: 0,
+                    variant: 0,
                     });
                 }
             }
         }
         self.world.set_block(pos, 0);
+        self.note_break(block);
         emit(out, ServerPlay::BlockUpdate { pos, id: 0 });
         emit(out, ServerPlay::Particles {
             kind: ParticleKind::Break,
@@ -221,6 +251,9 @@ impl Sim {
                 kind: 1,
                 pos: pos.center(),
                 item: Some((id, n)),
+                hp: 0,
+                state: 0,
+                variant: 0,
             });
         }
     }
@@ -230,6 +263,9 @@ impl Sim {
             return;
         }
         self.player.selected = hotbar.min(8);
+        if self.try_use(out) {
+            return;
+        }
         let dest = {
             let (dx, dy, dz) = face_offset(face);
             against.offset(dx, dy, dz)
@@ -299,13 +335,52 @@ impl Sim {
                 pos: Some(pos),
             });
             emit(out, ServerPlay::Inventory(snap_inv(&self.player)));
+        } else if id == game::blocks::BREW {
+            let mut w = Window::player(self.player.hotbar, self.player.main, self.player.selected);
+            w.kind = WindowKind::Brew;
+            self.player.window = Some(w);
+            emit(out, ServerPlay::OpenWindow { kind: OpenKind::Brew, pos: Some(pos) });
+            emit(out, ServerPlay::Inventory(snap_inv(&self.player)));
+        } else if id == game::blocks::CRYSTAL {
+            let mut w = Window::player(self.player.hotbar, self.player.main, self.player.selected);
+            w.kind = WindowKind::Etch;
+            self.player.window = Some(w);
+            emit(out, ServerPlay::OpenWindow { kind: OpenKind::Etch, pos: Some(pos) });
+            emit(out, ServerPlay::Inventory(snap_inv(&self.player)));
+        } else if id == game::blocks::VAULT {
+            if !self.take_key() {
+                return;
+            }
+            self.world.set_block(pos, game::blocks::CHEST);
+            emit(out, ServerPlay::BlockUpdate { pos, id: game::blocks::CHEST });
+            let mut w = Window::player(self.player.hotbar, self.player.main, self.player.selected);
+            w.kind = WindowKind::Chest;
+            w.chest = *self.world.chests.entry(pos).or_insert([None; 27]);
+            self.player.chest_pos = Some(pos);
+            self.player.window = Some(w);
+            self.wake_sentinels();
+            emit(out, ServerPlay::OpenWindow { kind: OpenKind::Chest, pos: Some(pos) });
+            emit(out, ServerPlay::Inventory(snap_inv(&self.player)));
         }
+    }
+
+    fn take_key(&mut self) -> bool {
+        for slot in self.player.hotbar.iter_mut().chain(self.player.main.iter_mut()) {
+            if let Some((id, n)) = *slot {
+                if id == game::ItemId::KEY {
+                    *slot = if n <= 1 { None } else { Some((id, n - 1)) };
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn close_window(&mut self, out: &Sender<ServerPlay>) {
         if let Some(w) = self.player.window.take() {
             sync_player_from_window(&mut self.player, &w);
             persist_chest(self, &w);
+            if w.kind != WindowKind::Trade {
             for s in w.craft.iter().flatten() {
                 if let Some(rest) = collect_into(&mut self.player.hotbar, &mut self.player.main, *s) {
                     let eid = self.world.spawn_item(self.player.body.pos + Vec3::Y, rest.0, rest.1);
@@ -314,8 +389,12 @@ impl Sim {
                         kind: 1,
                         pos: self.player.body.pos + Vec3::Y,
                         item: Some(rest),
+                    hp: 0,
+                    state: 0,
+                    variant: 0,
                     });
                 }
+            }
             }
             if let Some(c) = w.cursor {
                 if let Some(rest) = collect_into(&mut self.player.hotbar, &mut self.player.main, c) {
@@ -325,6 +404,9 @@ impl Sim {
                         kind: 1,
                         pos: self.player.body.pos + Vec3::Y,
                         item: Some(rest),
+                    hp: 0,
+                    state: 0,
+                    variant: 0,
                     });
                 }
             }
@@ -371,6 +453,9 @@ impl Sim {
                             block: 0,
                         });
                         emit(out, ServerPlay::Inventory(snap_inv(&self.player)));
+                        if st.0 == game::ItemId::HIDE {
+                            self.player.adv |= game::ADV_HIDE;
+                        }
                     }
                 }
             }

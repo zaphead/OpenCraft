@@ -1,9 +1,11 @@
+mod advance;
 mod container;
 mod font;
 mod hud;
 mod pause;
 mod prim;
 
+pub use advance::AdvancementScreen;
 pub use container::ContainerScreen;
 pub use hud::HudLayer;
 pub use pause::PauseMenu;

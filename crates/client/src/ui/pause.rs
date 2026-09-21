@@ -11,11 +11,11 @@ impl PauseMenu {
         seed: i64,
         confirm: bool,
         cursor: Vec2,
-    ) -> (Button, Button) {
+    ) -> (Button, Button, Button) {
         super::darken(ui);
         let s = ui.scale;
         let pw = 180.0 * s;
-        let ph = if confirm { 90.0 * s } else { 96.0 * s };
+        let ph = if confirm { 90.0 * s } else { 120.0 * s };
         let origin = Vec2::new((ui.size.x - pw) * 0.5, (ui.size.y - ph) * 0.5);
         Panel::draw(ui, origin, origin + Vec2::new(pw, ph), [0.12, 0.12, 0.12, 0.96], 0.08);
         if confirm {
@@ -28,7 +28,7 @@ impl PauseMenu {
             );
             let q = btn(ui, origin + Vec2::new(16.0 * s, 40.0 * s), 70.0 * s, "Quit", true, cursor);
             let c = btn(ui, origin + Vec2::new(94.0 * s, 40.0 * s), 70.0 * s, "Cancel", false, cursor);
-            return (c, q);
+            return (c, q, q);
         }
         Text::draw(
             ui,
@@ -45,8 +45,9 @@ impl PauseMenu {
             0.02,
         );
         let back = btn(ui, origin + Vec2::new(20.0 * s, 44.0 * s), 140.0 * s, "Back to Game", false, cursor);
-        let quit = btn(ui, origin + Vec2::new(20.0 * s, 68.0 * s), 140.0 * s, "Quit", true, cursor);
-        (back, quit)
+        let adv = btn(ui, origin + Vec2::new(20.0 * s, 66.0 * s), 140.0 * s, "Advancements", false, cursor);
+        let quit = btn(ui, origin + Vec2::new(20.0 * s, 88.0 * s), 140.0 * s, "Quit", true, cursor);
+        (back, adv, quit)
     }
 }
 

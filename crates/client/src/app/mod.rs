@@ -21,6 +21,15 @@ use crate::particles::Particle;
 use crate::predict::Predict;
 use crate::ui;
 
+pub struct MobSeen {
+    pub kind: u8,
+    pub pos: Vec3,
+    pub yaw: f32,
+    pub hp: u8,
+    pub state: u8,
+    pub variant: u8,
+}
+
 pub struct App {
     seed: i64,
     pack_path: Option<String>,
@@ -74,7 +83,17 @@ pub struct App {
     size: (u32, u32),
     slot_hits: Vec<(u16, engine_core::Vec2, engine_core::Vec2)>,
     pause_back: Option<ui::Button>,
+    pause_adv: Option<ui::Button>,
     pause_quit: Option<ui::Button>,
+    etch_btn: Option<ui::Button>,
+    ride: u8,
+    rooted: bool,
+    swift: bool,
+    glow: bool,
+    adv: u16,
+    adv_open: bool,
+    server_tick: u32,
+    mobs: HashMap<EntityId, MobSeen>,
     sounds: pack::PackSounds,
 }
 
@@ -133,7 +152,17 @@ impl App {
             size: (1280, 720),
             slot_hits: Vec::new(),
             pause_back: None,
+            pause_adv: None,
             pause_quit: None,
+            etch_btn: None,
+            ride: 0,
+            rooted: false,
+            swift: false,
+            glow: false,
+            adv: 0,
+            adv_open: false,
+            server_tick: 0,
+            mobs: HashMap::new(),
             sounds: pack::PackSounds::default(),
         }
     }

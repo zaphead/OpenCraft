@@ -22,6 +22,22 @@ impl App {
             sprint: self.snap.sprint,
             yaw: p.body.yaw,
             pitch: p.body.pitch,
+            ride: match self.ride {
+                2 => engine_phys::Ride::Griffin,
+                1 => engine_phys::Ride::Horse,
+                _ => engine_phys::Ride::Foot,
+            },
+            fluid: {
+                let id = self.replica.block(engine_core::BlockPos::from_vec3(p.body.pos));
+                match id {
+                    blocks::WATER => engine_phys::Fluid::Water,
+                    blocks::LAVA => engine_phys::Fluid::Lava,
+                    blocks::SPRING => engine_phys::Fluid::Spring,
+                    _ => engine_phys::Fluid::None,
+                }
+            },
+            rooted: self.rooted,
+            swift: self.swift,
         };
         p.step(input, &self.replica);
         let pkt = ClientPlay::TickInput {
@@ -76,7 +92,16 @@ impl App {
         if e.right_press {
             if let Some(h) = &hit {
                 let id = self.replica.block(h.pos);
-                if !self.snap.sneak && (id == blocks::CRAFTING_TABLE || id == blocks::CHEST) {
+                if !self.snap.sneak
+                    && matches!(
+                        id,
+                        blocks::CRAFTING_TABLE
+                            | blocks::CHEST
+                            | blocks::BREW
+                            | blocks::CRYSTAL
+                            | blocks::VAULT
+                    )
+                {
                     self.send(ClientPlay::UseBlock { pos: h.pos });
                 } else {
                     self.send(ClientPlay::Place {
@@ -95,11 +120,15 @@ impl App {
         }
         if e.left_press || e.right_press {
             if let Some(slot) = ContainerScreen::hit(&self.slot_hits, self.snap.cursor) {
-                self.send(ClientPlay::ClickSlot {
-                    slot,
-                    button: if e.right_press { 1 } else { 0 },
-                    shift: self.snap.shift,
-                });
+                if slot == u16::MAX - 1 {
+                    self.send(ClientPlay::PressButton { id: 1 });
+                } else {
+                    self.send(ClientPlay::ClickSlot {
+                        slot,
+                        button: if e.right_press { 1 } else { 0 },
+                        shift: self.snap.shift,
+                    });
+                }
             }
         }
     }

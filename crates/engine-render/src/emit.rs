@@ -1,7 +1,8 @@
 use engine_core::{Vec2, Vec3};
 
 use crate::submit::{
-    Camera, GroundShadow, ItemDraw, MeshData, ParticleDraw, PlayerDraw, UiQuad, Vertex, ANCHOR_UV,
+    Camera, GroundShadow, ItemDraw, MeshData, ParticleDraw, PlayerDraw, SelectionDraw, UiQuad, Vertex,
+    ANCHOR_UV,
 };
 
 pub(crate) fn emit_ui_quad(mesh: &mut MeshData, q: &UiQuad) {
@@ -66,6 +67,23 @@ pub(crate) fn emit_items(mesh: &mut MeshData, items: &[ItemDraw]) {
     }
 }
 
+/// Targeted-block shell: a hair bigger than the block so it never z-fights,
+/// dark when just selected, burning red as the dig lands.
+pub(crate) fn emit_selection(mesh: &mut MeshData, sel: &SelectionDraw) {
+    let p = sel.progress.clamp(0.0, 1.0);
+    let center = Vec3::new(sel.pos.x as f32 + 0.5, sel.pos.y as f32 + 0.5, sel.pos.z as f32 + 0.5);
+    let (uv0, uv1) = (Vec2::new(ANCHOR_UV.0[0], ANCHOR_UV.0[1]), Vec2::new(ANCHOR_UV.1[0], ANCHOR_UV.1[1]));
+    cube_at(
+        mesh,
+        center,
+        Vec3::splat(0.5 + 0.004),
+        0.0,
+        uv0,
+        uv1,
+        [0.35 + 0.65 * p, 0.02, 0.02, 0.22 + 0.40 * p],
+    );
+}
+
 /// One streak per body: a flat quad from the feet running away from the sun.
 /// Uniform dark, hard edges, normal up so it reads as shade on the ground.
 pub(crate) fn emit_ground_shadows(mesh: &mut MeshData, shadows: &[GroundShadow]) {
@@ -98,6 +116,17 @@ pub(crate) fn emit_ground_shadows(mesh: &mut MeshData, shadows: &[GroundShadow])
             [0.0, 0.0, 0.0, 0.45],
             Vec3::Y,
         );
+    }
+}
+
+pub(crate) fn emit_mobs(mesh: &mut MeshData, mobs: &[crate::MobDraw]) {
+    for m in mobs {
+        let tint = [m.color[0], m.color[1], m.color[2], 1.0];
+        let h = m.height.max(0.3);
+        let r = m.radius.max(0.1);
+        skin_box(mesh, m.pos + Vec3::new(0.0, h * 0.82, 0.0), Vec3::new(r, h * 0.18, r), m.yaw, SkinPart::Head, tint);
+        skin_box(mesh, m.pos + Vec3::new(0.0, h * 0.48, 0.0), Vec3::new(r * 0.9, h * 0.22, r * 0.55), m.yaw, SkinPart::Body, tint);
+        skin_box(mesh, m.pos + Vec3::new(0.0, h * 0.16, 0.0), Vec3::new(r * 0.35, h * 0.16, r * 0.35), m.yaw, SkinPart::Leg, tint);
     }
 }
 

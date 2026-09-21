@@ -38,6 +38,10 @@ pub fn mesh_chunk(snap: &ChunkSnapshot, sun: Sun) -> MeshData {
                     let wx = snap.pos.x * 16 + x as i32;
                     let wy = base_y + y as i32;
                     let wz = snap.pos.z * 16 + z as i32;
+                    if game::is_cross(id) || id == game::blocks::LILY {
+                        emit_deco(&mut mesh, wx, wy, wz, id);
+                        continue;
+                    }
                     for face in 0..6u8 {
                         try_face(&mut mesh, snap, sun, wx, wy, wz, x, y, z, si, id, face);
                     }
@@ -68,8 +72,9 @@ fn try_face(
     }
     let tile = block_tile(id, face);
     let (uv0, uv1) = tile_uv(tile);
-    let shade = face_shade(snap, sun, wx, wy, wz, face);
-    emit_face(mesh, wx, wy, wz, face, uv0, uv1, shade);
+    let shade = face_shade(snap, sun, wx, wy, wz, face) ;
+    let flag = block_flag(id);
+    emit_face(mesh, wx, wy, wz, face, uv0, uv1, shade, flag, id);
 }
 
 fn neighbor_solid(snap: &ChunkSnapshot, si: usize, lx: i32, ly: i32, lz: i32) -> bool {
@@ -152,6 +157,65 @@ fn snapshot_solid(snap: &ChunkSnapshot, wx: i32, wy: i32, wz: i32) -> bool {
 /// `(b-a)x(c-a)` equals the face normal, so backface culling keeps exactly
 /// the faces a viewer outside the block should see. Faces 0/1 used to be
 /// wound the other way, which made east/west sides vanish from outside.
+fn block_flag(id: u16) -> f32 {
+    if id == game::blocks::SUNPETAL {
+        0.75
+    } else if id == game::blocks::STARBLOOM {
+        0.40
+    } else if matches!(id, game::blocks::GLOWVINE | game::blocks::CRYSTAL | game::blocks::KING_CAP) {
+        0.55
+    } else if game::is_leaf(id) || id == game::blocks::GRASS || game::is_cross(id) || id == game::blocks::TUFT {
+        0.90
+    } else {
+        1.0
+    }
+}
+
+fn tint_for(id: u16) -> [f32; 3] {
+    match id {
+        game::blocks::PINE_LEAVES | game::blocks::REDWOOD_LEAVES => [0.85, 0.55, 0.22],
+        game::blocks::BIRCH_LEAVES => [0.7, 0.85, 0.4],
+        game::blocks::FLOWER => [0.95, 0.45, 0.55],
+        game::blocks::SUNPETAL => [0.98, 0.85, 0.2],
+        _ => [1.0, 1.0, 1.0],
+    }
+}
+
+fn emit_deco(mesh: &mut MeshData, x: i32, y: i32, z: i32, id: u16) {
+    let tile = block_tile(id, 4);
+    let (uv0, uv1) = tile_uv(tile);
+    let flag = block_flag(id);
+    let tint = tint_for(id);
+    if id == game::blocks::LILY {
+        emit_face(mesh, x, y, z, 3, uv0, uv1, 1.0, flag, id);
+        return;
+    }
+    let (fx, fy, fz) = (x as f32, y as f32, z as f32);
+    let y1 = if id == game::blocks::REED { fy + 1.4 } else { fy + 1.0 };
+    cross_quad(mesh, [fx, fy, fz], [fx + 1.0, y1, fz + 1.0], uv0, uv1, tint, flag);
+    cross_quad(mesh, [fx + 1.0, fy, fz], [fx, y1, fz + 1.0], uv0, uv1, tint, flag);
+}
+
+fn cross_quad(mesh: &mut MeshData, a: [f32; 3], b: [f32; 3], uv0: engine_core::Vec2, uv1: engine_core::Vec2, tint: [f32; 3], flag: f32) {
+    let i = mesh.vertices.len() as u32;
+    let pts = [
+        [a[0], a[1], a[2]],
+        [b[0], a[1], b[2]],
+        [b[0], b[1], b[2]],
+        [a[0], b[1], a[2]],
+    ];
+    let uvs = [[uv0.x, uv1.y], [uv1.x, uv1.y], [uv1.x, uv0.y], [uv0.x, uv0.y]];
+    for k in 0..4 {
+        mesh.vertices.push(Vertex {
+            pos: pts[k],
+            normal: [0.0, 1.0, 0.0],
+            uv: uvs[k],
+            color: [tint[0], tint[1], tint[2], flag],
+        });
+    }
+    mesh.indices.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3, i, i + 2, i + 1, i, i + 3, i + 2]);
+}
+
 fn emit_face(
     mesh: &mut MeshData,
     x: i32,
@@ -161,6 +225,8 @@ fn emit_face(
     uv0: engine_core::Vec2,
     uv1: engine_core::Vec2,
     shade: f32,
+    flag: f32,
+    id: u16,
 ) {
     let (fx, fy, fz) = (x as f32, y as f32, z as f32);
     let (n, pts): ([f32; 3], [[f32; 3]; 4]) = match face {
@@ -195,7 +261,7 @@ fn emit_face(
             pos: pts[k],
             normal: n,
             uv: uvs[k],
-            color: [shade, shade, shade, 1.0],
+            color: [shade * tint_for(id)[0], shade * tint_for(id)[1], shade * tint_for(id)[2], flag],
         });
     }
     mesh.indices.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);

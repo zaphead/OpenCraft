@@ -11,13 +11,20 @@ pub use store::{Stack, World};
 use engine_core::{BlockPos, MIN_Y, SECTION_EDGE};
 use engine_phys::VoxelSolid;
 
-/// Empty cell is id 0. Block solidity rules live in `game::is_solid`.
+/// Air, fluids, and soft flora. Ids match `game::blocks`. Thorn stays solid.
+pub fn solid_id(id: u16) -> bool {
+    !matches!(
+        id,
+        0 | 10 | 11 | 12 | 38 | 39 | 40 | 41 | 43 | 44 | 45 | 46 | 59 | 60
+    )
+}
+
 impl VoxelSolid for World {
     fn solid(&self, x: i32, y: i32, z: i32) -> bool {
         if y < MIN_Y {
             return true;
         }
-        self.block(BlockPos::new(x, y, z)) != 0
+        solid_id(self.block(BlockPos::new(x, y, z)))
     }
 }
 

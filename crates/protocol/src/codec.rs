@@ -207,6 +207,10 @@ fn write_client(w: &mut Vec<u8>, m: &ClientPlay) {
         }
         ClientPlay::CloseWindow => u8w(w, 8),
         ClientPlay::OpenInventory => u8w(w, 9),
+        ClientPlay::PressButton { id } => {
+            u8w(w, 10);
+            u8w(w, *id);
+        }
     }
 }
 
@@ -239,6 +243,7 @@ fn read_client(r: &mut &[u8]) -> Result<ClientPlay, CodecError> {
         },
         8 => ClientPlay::CloseWindow,
         9 => ClientPlay::OpenInventory,
+        10 => ClientPlay::PressButton { id: u8r(r)? },
         t => return Err(CodecError::Tag(t)),
     };
     Ok(m)
@@ -302,6 +307,10 @@ fn encode_server(w: &mut Vec<u8>, m: &ServerPlay) {
             on_ground,
             health,
             fall_distance,
+            ride,
+            rooted,
+            fx,
+            adv,
         } => {
             u8w(w, 6);
             u32w(w, *tick);
@@ -310,20 +319,44 @@ fn encode_server(w: &mut Vec<u8>, m: &ServerPlay) {
             boolw(w, *on_ground);
             u8w(w, *health);
             f32w(w, *fall_distance);
+            u8w(w, *ride);
+            u8w(w, *rooted);
+            u8w(w, *fx);
+            u16w(w, *adv);
         }
-        ServerPlay::EntitySpawn { id, kind, pos, item } => {
+        ServerPlay::EntitySpawn {
+            id,
+            kind,
+            pos,
+            item,
+            hp,
+            state,
+            variant,
+        } => {
             u8w(w, 7);
             eid_w(w, *id);
             u8w(w, *kind);
             vec_w(w, *pos);
             stack_w(w, *item);
+            u8w(w, *hp);
+            u8w(w, *state);
+            u8w(w, *variant);
         }
-        ServerPlay::EntityPos { id, pos, yaw, pitch } => {
+        ServerPlay::EntityPos {
+            id,
+            pos,
+            yaw,
+            pitch,
+            hp,
+            state,
+        } => {
             u8w(w, 8);
             eid_w(w, *id);
             vec_w(w, *pos);
             f32w(w, *yaw);
             f32w(w, *pitch);
+            u8w(w, *hp);
+            u8w(w, *state);
         }
         ServerPlay::EntityDespawn { id } => {
             u8w(w, 9);
@@ -341,6 +374,10 @@ fn encode_server(w: &mut Vec<u8>, m: &ServerPlay) {
                     OpenKind::Inventory => 0,
                     OpenKind::CraftingTable => 1,
                     OpenKind::Chest => 2,
+                    OpenKind::Etch => 3,
+                    OpenKind::Brew => 4,
+                    OpenKind::Trade => 5,
+                    OpenKind::Vault => 6,
                 },
             );
             match pos {
@@ -359,6 +396,12 @@ fn encode_server(w: &mut Vec<u8>, m: &ServerPlay) {
                 match kind {
                     ParticleKind::Break => 0,
                     ParticleKind::Place => 1,
+                    ParticleKind::Hearts => 2,
+                    ParticleKind::Steam => 3,
+                    ParticleKind::Spore => 4,
+                    ParticleKind::Leaf => 5,
+                    ParticleKind::Sting => 6,
+                    ParticleKind::Wisp => 7,
                 },
             );
             vec_w(w, *pos);
@@ -374,6 +417,8 @@ fn encode_server(w: &mut Vec<u8>, m: &ServerPlay) {
                     SoundKind::Place => 2,
                     SoundKind::Hurt => 3,
                     SoundKind::Pickup => 4,
+                    SoundKind::Call => 5,
+                    SoundKind::Hum => 6,
                 },
             );
             vec_w(w, *pos);
@@ -439,18 +484,27 @@ fn decode_server(r: &mut &[u8]) -> Result<ServerPlay, CodecError> {
             on_ground: boolr(r)?,
             health: u8r(r)?,
             fall_distance: f32r(r)?,
+            ride: u8r(r)?,
+            rooted: u8r(r)?,
+            fx: u8r(r)?,
+            adv: u16r(r)?,
         },
         7 => ServerPlay::EntitySpawn {
             id: eid_r(r)?,
             kind: u8r(r)?,
             pos: vec_r(r)?,
             item: stack_r(r)?,
+            hp: u8r(r)?,
+            state: u8r(r)?,
+            variant: u8r(r)?,
         },
         8 => ServerPlay::EntityPos {
             id: eid_r(r)?,
             pos: vec_r(r)?,
             yaw: f32r(r)?,
             pitch: f32r(r)?,
+            hp: u8r(r)?,
+            state: u8r(r)?,
         },
         9 => ServerPlay::EntityDespawn { id: eid_r(r)? },
         10 => ServerPlay::Inventory(inv_r(r)?),
@@ -459,6 +513,10 @@ fn decode_server(r: &mut &[u8]) -> Result<ServerPlay, CodecError> {
                 0 => OpenKind::Inventory,
                 1 => OpenKind::CraftingTable,
                 2 => OpenKind::Chest,
+                3 => OpenKind::Etch,
+                4 => OpenKind::Brew,
+                5 => OpenKind::Trade,
+                6 => OpenKind::Vault,
                 t => return Err(CodecError::Tag(t)),
             };
             let pos = if boolr(r)? { Some(pos_r(r)?) } else { None };
@@ -469,6 +527,12 @@ fn decode_server(r: &mut &[u8]) -> Result<ServerPlay, CodecError> {
             let kind = match u8r(r)? {
                 0 => ParticleKind::Break,
                 1 => ParticleKind::Place,
+                2 => ParticleKind::Hearts,
+                3 => ParticleKind::Steam,
+                4 => ParticleKind::Spore,
+                5 => ParticleKind::Leaf,
+                6 => ParticleKind::Sting,
+                7 => ParticleKind::Wisp,
                 t => return Err(CodecError::Tag(t)),
             };
             ServerPlay::Particles {
@@ -484,6 +548,8 @@ fn decode_server(r: &mut &[u8]) -> Result<ServerPlay, CodecError> {
                 2 => SoundKind::Place,
                 3 => SoundKind::Hurt,
                 4 => SoundKind::Pickup,
+                5 => SoundKind::Call,
+                6 => SoundKind::Hum,
                 t => return Err(CodecError::Tag(t)),
             };
             ServerPlay::Sound {

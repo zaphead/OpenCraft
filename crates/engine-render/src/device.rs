@@ -167,8 +167,8 @@ impl Gpu {
 
         let cam_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("cam buf"),
-            // view_proj (64) + sun_dir xyz + brightness (16).
-            size: 80,
+            // view_proj (64) + sun (16) + fog (16) + sway (16) + tint (16) + cam (16).
+            size: 144,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });

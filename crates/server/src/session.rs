@@ -18,6 +18,13 @@ pub struct Player {
     pub last_on_ground: bool,
     pub step_accum: f32,
     pub input: MoveInput,
+    pub mount: Option<EntityId>,
+    pub rooted: u16,
+    pub fire: u16,
+    pub glow: u16,
+    pub swift: u16,
+    pub adv: u16,
+    pub hurt_cd: u8,
 }
 
 impl Player {
@@ -38,6 +45,13 @@ impl Player {
             last_on_ground: true,
             step_accum: 0.0,
             input: MoveInput::default(),
+            mount: None,
+            rooted: 0,
+            fire: 0,
+            glow: 0,
+            swift: 0,
+            adv: 0,
+            hurt_cd: 0,
         }
     }
 

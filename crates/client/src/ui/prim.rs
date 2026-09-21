@@ -50,6 +50,7 @@ impl Text {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Button {
     pub min: Vec2,
     pub max: Vec2,

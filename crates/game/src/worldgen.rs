@@ -1,6 +1,7 @@
 use engine_core::{ChunkPos, MIN_Y, SECTION_EDGE};
 use world::Chunk;
 
+use crate::biome::{biome_at, filler_block, height_bias, sea_level, surface_block, Biome};
 use crate::blocks;
 
 pub fn generate_chunk(seed: i64, pos: ChunkPos) -> Chunk {
@@ -11,18 +12,46 @@ pub fn generate_chunk(seed: i64, pos: ChunkPos) -> Chunk {
         for lx in 0..16 {
             let wx = ox + lx;
             let wz = oz + lz;
+            let biome = biome_at(seed, wx, wz);
             let h = surface_y(seed, wx, wz);
             for y in MIN_Y..h {
                 let id = if y == h - 1 {
-                    blocks::GRASS
+                    surface_block(biome, y)
                 } else if y >= h - 4 {
-                    blocks::DIRT
+                    filler_block(biome)
+                } else if biome == Biome::Frost && y > h - 14 {
+                    blocks::PACKED_ICE
+                } else if biome == Biome::Ash && y > h - 10 {
+                    blocks::BASALT
                 } else {
                     blocks::STONE
                 };
                 chunk.set(lx as u32, y, lz as u32, id);
             }
-            if tree_here(seed, wx, wz) && h > MIN_Y + 4 && h + 5 < engine_core::MAX_Y {
+            let sea = sea_level(biome);
+            if sea > h {
+                for y in h..sea {
+                    chunk.set(lx as u32, y, lz as u32, blocks::WATER);
+                }
+            }
+            let river = (wz as f32 - 36.0 - (wx as f32 * 0.04).sin() * 8.0).abs();
+            if river < 2.5 && (-40..220).contains(&wx) && h < 34 {
+                for y in h..34 {
+                    chunk.set(lx as u32, y, lz as u32, blocks::WATER);
+                }
+            }
+            let pond = (wx - 18) * (wx - 18) + (wz - 22) * (wz - 22);
+            if pond < 16 && biome == Biome::Meadow {
+                let bed = (h - 2).max(MIN_Y);
+                for y in bed..h {
+                    chunk.set(lx as u32, y, lz as u32, blocks::WATER);
+                }
+            }
+            if tree_here(seed, wx, wz)
+                && matches!(biome, Biome::Meadow | Biome::Oak)
+                && h > MIN_Y + 4
+                && h + 5 < engine_core::MAX_Y
+            {
                 let top = chunk.get(lx as u32, h - 1, lz as u32);
                 if top == blocks::GRASS {
                     chunk.set(lx as u32, h - 1, lz as u32, blocks::DIRT);
@@ -56,13 +85,21 @@ pub fn generate_chunk(seed: i64, pos: ChunkPos) -> Chunk {
             }
         }
     }
+    crate::biomes::grow_all(&mut chunk, seed);
+    crate::pieces::stamp_all(&mut chunk, seed);
     chunk
 }
 
 pub fn surface_y(seed: i64, x: i32, z: i32) -> i32 {
+    let biome = biome_at(seed, x, z);
+    let (base, amp) = height_bias(biome);
     let n = fbm(seed, x as f32, z as f32);
-    let h = 40.0 + n * 30.0;
-    (h as i32).clamp(MIN_Y + 8, engine_core::MAX_Y - 16)
+    let mut h = base + n * amp;
+    let river = (z as f32 - 36.0 - (x as f32 * 0.04).sin() * 8.0).abs();
+    if river < 2.5 && (-40..220).contains(&x) {
+        h = h.min(33.0);
+    }
+    (h as i32).clamp(MIN_Y + 8, engine_core::MAX_Y - 24)
 }
 
 fn tree_here(seed: i64, x: i32, z: i32) -> bool {
@@ -102,7 +139,7 @@ fn canopy(chunk: &mut Chunk, seed: i64, wx: i32, top_y: i32, wz: i32) {
     }
 }
 
-fn hash(seed: i64, x: i32, z: i32) -> u32 {
+pub(crate) fn hash(seed: i64, x: i32, z: i32) -> u32 {
     let mut n = seed as u32
         ^ (x as u32).wrapping_mul(374761393)
         ^ (z as u32).wrapping_mul(668265263);

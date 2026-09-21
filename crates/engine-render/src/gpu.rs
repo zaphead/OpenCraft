@@ -1,5 +1,8 @@
 use crate::device::{Gpu, GpuMesh, RenderError};
-use crate::emit::{emit_ground_shadows, emit_held, emit_items, emit_particles, emit_player, emit_ui_quad};
+use crate::emit::{
+    emit_ground_shadows, emit_held, emit_items, emit_mobs, emit_particles, emit_player, emit_selection,
+    emit_ui_quad,
+};
 use crate::submit::{FrameSubmit, MeshData, TextureId};
 use engine_core::{ChunkPos, Mat4, Vec3, MAX_Y, MIN_Y};
 use rustc_hash::FxHashMap;
@@ -127,6 +130,15 @@ impl Renderer {
         self.gpu
             .queue
             .write_buffer(&self.gpu.cam_buf, 64, bytemuck::bytes_of(&sun));
+        let fog: [f32; 4] = [frame.fog_color[0], frame.fog_color[1], frame.fog_color[2], frame.fog_density];
+        self.gpu.queue.write_buffer(&self.gpu.cam_buf, 80, bytemuck::bytes_of(&fog));
+        let sway: [f32; 4] = [frame.sway, 0.06, 0.0, 0.0];
+        self.gpu.queue.write_buffer(&self.gpu.cam_buf, 96, bytemuck::bytes_of(&sway));
+        let tint: [f32; 4] = [frame.tint[0], frame.tint[1], frame.tint[2], 0.0];
+        self.gpu.queue.write_buffer(&self.gpu.cam_buf, 112, bytemuck::bytes_of(&tint));
+        let cam = frame.camera.map(|c| c.pos).unwrap_or(engine_core::Vec3::ZERO);
+        let cam_pos: [f32; 4] = [cam.x, cam.y, cam.z, 0.0];
+        self.gpu.queue.write_buffer(&self.gpu.cam_buf, 128, bytemuck::bytes_of(&cam_pos));
         let screen = [self.gpu.size.0 as f32, self.gpu.size.1 as f32, 0.0, 0.0];
         self.gpu
             .queue
@@ -146,10 +158,14 @@ impl Renderer {
             emit_items(&mut dyn_mesh, &frame.items);
             emit_ground_shadows(&mut dyn_mesh, &frame.ground_shadows);
         }
+        if let Some(sel) = &frame.selection {
+            emit_selection(&mut dyn_mesh, sel);
+        }
         let mut player_mesh = MeshData::default();
         if let Some(p) = &frame.player {
             emit_player(&mut player_mesh, p);
         }
+        emit_mobs(&mut player_mesh, &frame.mobs);
         let mut held_mesh = MeshData::default();
         if let Some(p) = &frame.player {
             emit_held(&mut held_mesh, p);

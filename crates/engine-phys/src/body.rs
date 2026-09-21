@@ -79,6 +79,25 @@ impl Body {
     }
 }
 
+/// The one body, mounted. Sneak dismounts before this tick; glide does not hover.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Ride {
+    #[default]
+    Foot,
+    Horse,
+    Griffin,
+}
+
+/// What the feet are standing in. Lava and springs are still just blocks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Fluid {
+    #[default]
+    None,
+    Water,
+    Lava,
+    Spring,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct MoveInput {
     pub forward: f32,
@@ -88,15 +107,33 @@ pub struct MoveInput {
     pub sprint: bool,
     pub yaw: f32,
     pub pitch: f32,
+    pub ride: Ride,
+    pub fluid: Fluid,
+    pub rooted: bool,
+    pub swift: bool,
 }
 
 pub fn tick_body(body: &mut Body, input: MoveInput, world: &impl VoxelSolid) {
     body.yaw = input.yaw;
     body.pitch = input.pitch.clamp(-1.535, 1.535);
-    body.sneaking = input.sneak;
-    body.sprinting = input.sprint && !body.sneaking && input.forward > 0.0;
+    body.sneaking = input.sneak && input.ride == Ride::Foot;
+    body.sprinting = input.sprint && !input.sneak && input.forward > 0.0;
+
+    // A treant holds the body still. Fall distance stays so a later landing
+    // still hurts; the root itself is not a landing.
+    if input.rooted {
+        body.vel = Vec3::ZERO;
+        body.sprinting = false;
+        return;
+    }
 
     let mut accel = if body.on_ground { GROUND_ACCEL } else { AIR_ACCEL };
+    if input.ride == Ride::Horse {
+        accel *= 1.55;
+    }
+    if input.swift {
+        accel *= 1.35;
+    }
     if body.sprinting && body.on_ground {
         accel *= SPRINT_MUL;
     }
@@ -161,9 +198,43 @@ pub fn tick_body(body: &mut Body, input: MoveInput, world: &impl VoxelSolid) {
         // fall_distance consumed by caller via take_landed_fall
     }
 
-    body.vel.y -= GRAVITY;
-    body.vel.y *= AIR_DRAG;
+    let mut gravity = GRAVITY;
+    let mut y_drag = AIR_DRAG;
+    match input.fluid {
+        Fluid::Water | Fluid::Spring => {
+            gravity = 0.02;
+            y_drag = 0.8;
+            if input.jump {
+                body.vel.y += 0.06;
+            }
+        }
+        Fluid::Lava => {
+            gravity = 0.03;
+            y_drag = 0.8;
+            if input.jump {
+                body.vel.y += 0.04;
+            }
+        }
+        Fluid::None => {}
+    }
+    // Griffin: forward and down. Never a hover — vertical speed stays a sink
+    // unless this tick's jump just left the ground.
+    if input.ride == Ride::Griffin && !(input.jump && body.on_ground) {
+        let (sin, cos) = (body.yaw.sin(), body.yaw.cos());
+        let glide = input.forward.max(0.0);
+        body.vel.x += -sin * glide * 0.06;
+        body.vel.z += cos * glide * 0.06;
+        if body.vel.y > -0.08 {
+            body.vel.y = -0.08;
+        }
+        gravity = 0.01;
+    }
+    body.vel.y -= gravity;
+    body.vel.y *= y_drag;
     let mut drag = HORIZ_DRAG;
+    if input.fluid != Fluid::None {
+        drag *= 0.85;
+    }
     if body.on_ground {
         drag *= SLIP;
     }

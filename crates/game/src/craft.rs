@@ -36,6 +36,9 @@ fn shapeless(cells: &[u16]) -> Option<(u16, u8)> {
     if filled.len() == 2 && count(cells, blocks::PLANKS) == 2 {
         return Some((ItemId::STICK, 4));
     }
+    if filled.len() == 2 && count(cells, ItemId::STICK) == 1 && count(cells, ItemId::GLOWCAP) == 1 {
+        return Some((ItemId::STAFF, 1));
+    }
     None
 }
 

@@ -50,6 +50,10 @@ impl Sim {
     }
 
     pub fn join_player(&mut self, out: &Sender<ServerPlay>) {
+        let loaded: Vec<_> = self.world.loaded_chunks().collect();
+        for pos in loaded {
+            self.populate(pos, out);
+        }
         send_interest_sync(self, out);
         emit(out, ServerPlay::JoinGame {
             entity: self.player.entity,
@@ -65,15 +69,19 @@ impl Sim {
     pub fn tick(&mut self, inbox: &[ClientPlay], out: &Sender<ServerPlay>) {
         while let Ok(chunk) = self.gen_rx.try_recv() {
             if !self.world.has_chunk(chunk.pos) {
+                let pos = chunk.pos;
                 self.world.insert_chunk(chunk);
+                self.populate(pos, out);
             }
         }
         for pkt in inbox {
             self.handle(pkt, out);
         }
         self.tick = self.tick.wrapping_add(1);
+        self.prepare_body();
         self.simulate_player(out);
         self.tick_items(out);
+        self.tick_mobs(out);
         self.progress_dig(out);
         self.stream_chunks(out);
         emit(out, ServerPlay::KeepTick { tick: self.tick });
@@ -84,6 +92,10 @@ impl Sim {
             on_ground: self.player.body.on_ground,
             health: self.player.health,
             fall_distance: self.player.body.fall_distance,
+            ride: life::ride_code(self),
+            rooted: if self.player.rooted > 0 { 1 } else { 0 },
+            fx: life::fx_bits(self),
+            adv: self.player.adv,
         });
         if let Some(i) = self.world.entities.get(self.player.entity) {
             self.world.entities.pos[i] = self.player.body.pos;
@@ -99,6 +111,8 @@ impl Sim {
                 pos: self.world.entities.pos[i],
                 yaw: self.world.entities.yaw[i],
                 pitch: self.world.entities.pitch[i],
+                hp: self.world.entities.hp[i],
+                state: self.world.entities.state[i],
             });
         }
     }
@@ -106,6 +120,7 @@ impl Sim {
 
 mod action;
 mod interest;
+mod life;
 
 #[cfg(test)]
 mod tests;

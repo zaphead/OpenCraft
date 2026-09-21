@@ -10,6 +10,10 @@ pub enum WindowKind {
     Inventory,
     CraftingTable,
     Chest,
+    Etch,
+    Brew,
+    Trade,
+    Vault,
 }
 
 pub struct Window {
@@ -41,7 +45,11 @@ impl Window {
         let w = match self.kind {
             WindowKind::Inventory => 2,
             WindowKind::CraftingTable => 3,
-            WindowKind::Chest => {
+            WindowKind::Brew => {
+                self.result = crate::brew(&self.craft[..3]);
+                return;
+            }
+            WindowKind::Chest | WindowKind::Vault | WindowKind::Etch | WindowKind::Trade => {
                 self.result = None;
                 return;
             }
@@ -99,13 +107,37 @@ pub fn layout(kind: WindowKind) -> SlotMap {
             result: 45,
             chest: None,
         },
-        WindowKind::Chest => SlotMap {
+        WindowKind::Chest | WindowKind::Vault => SlotMap {
             hotbar: 0,
             main: 9,
             craft: 0,
             craft_n: 0,
             result: u16::MAX,
             chest: Some(36),
+        },
+        WindowKind::Etch => SlotMap {
+            hotbar: 0,
+            main: 9,
+            craft: 36,
+            craft_n: 1,
+            result: u16::MAX,
+            chest: None,
+        },
+        WindowKind::Brew => SlotMap {
+            hotbar: 0,
+            main: 9,
+            craft: 36,
+            craft_n: 3,
+            result: 39,
+            chest: None,
+        },
+        WindowKind::Trade => SlotMap {
+            hotbar: 0,
+            main: 9,
+            craft: 36,
+            craft_n: 3,
+            result: u16::MAX,
+            chest: None,
         },
     }
 }
@@ -157,6 +189,10 @@ fn get_mut<'a>(w: &'a mut Window, slot: u16) -> Option<&'a mut Stack> {
 }
 
 pub fn click_slot(w: &mut Window, slot: u16, button: u8, shift: bool) {
+    if w.kind == WindowKind::Trade {
+        trade_buy(w, slot);
+        return;
+    }
     let m = layout(w.kind);
     if slot == m.result {
         take_result(w, shift);
@@ -279,7 +315,8 @@ fn consume_one_craft(w: &mut Window) -> bool {
     let n = match w.kind {
         WindowKind::Inventory => 4,
         WindowKind::CraftingTable => 9,
-        WindowKind::Chest => return false,
+        WindowKind::Brew => 3,
+        WindowKind::Chest | WindowKind::Vault | WindowKind::Etch | WindowKind::Trade => return false,
     };
     for i in 0..n {
         if let Some((id, c)) = w.craft[i] {
@@ -335,6 +372,81 @@ fn quick_move(w: &mut Window, slot: u16) {
             *orig = Some(rest);
         }
     }
+}
+
+pub fn etch_tool(w: &mut Window) -> bool {
+    let Some((id, _)) = w.craft[0] else { return false };
+    let Some(next) = crate::etched(id) else { return false };
+    w.craft[0] = Some((next, 1));
+    true
+}
+
+fn trade_buy(w: &mut Window, slot: u16) {
+    use crate::items::ItemId;
+    let m = layout(WindowKind::Trade);
+    let Some(idx) = slot.checked_sub(m.craft) else {
+        // Player storage still moves, so a mis-click on the hotbar is a normal click.
+        trade_move(w, slot);
+        return;
+    };
+    if idx > 2 {
+        return;
+    }
+    let (cost, n, give) = match idx {
+        0 => (ItemId::HIDE, 8u8, ItemId::STAFF),
+        1 => (ItemId::BEEF, 4, ItemId::KEY),
+        _ => (ItemId::HONEYCOMB, 1, ItemId::GLOWCAP),
+    };
+    if !pay(w, cost, n) {
+        return;
+    }
+    let mut give_stack = Some((give, 1u8));
+    for slot in w.hotbar.iter_mut().chain(w.main.iter_mut()) {
+        let Some(cur) = give_stack else { break };
+        give_stack = merge(slot, cur);
+    }
+    if let Some(rest) = give_stack {
+        let _ = merge(&mut w.cursor, rest);
+    }
+}
+
+fn trade_move(w: &mut Window, slot: u16) {
+    let mut cursor = w.cursor;
+    {
+        let Some(stack) = get_mut(w, slot) else { return };
+        left(stack, &mut cursor);
+    }
+    w.cursor = cursor;
+}
+
+fn pay(w: &mut Window, id: u16, n: u8) -> bool {
+    let have: u16 = w
+        .hotbar
+        .iter()
+        .chain(w.main.iter())
+        .filter_map(|s| s.and_then(|(i, c)| if i == id { Some(c as u16) } else { None }))
+        .sum();
+    if have < n as u16 {
+        return false;
+    }
+    let mut left = n;
+    for slot in w.hotbar.iter_mut().chain(w.main.iter_mut()) {
+        if left == 0 {
+            break;
+        }
+        let Some((sid, c)) = *slot else { continue };
+        if sid != id {
+            continue;
+        }
+        if c <= left {
+            *slot = None;
+            left -= c;
+        } else {
+            *slot = Some((sid, c - left));
+            left = 0;
+        }
+    }
+    true
 }
 
 pub fn collect_into(hotbar: &mut [Stack; 9], main: &mut [Stack; 27], st: (u16, u8)) -> Option<(u16, u8)> {

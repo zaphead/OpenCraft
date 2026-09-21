@@ -1,4 +1,4 @@
-use engine_core::{ChunkPos, Vec2, Vec3};
+use engine_core::{BlockPos, ChunkPos, Vec2, Vec3};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TextureId(pub u32);
@@ -103,6 +103,24 @@ pub struct GroundShadow {
     pub half: f32,
 }
 
+/// A mob drawn with the same skin-box the player uses, tinted per kind.
+#[derive(Clone, Copy, Debug)]
+pub struct MobDraw {
+    pub pos: Vec3,
+    pub yaw: f32,
+    pub height: f32,
+    pub radius: f32,
+    pub color: [f32; 3],
+}
+
+/// Targeted-block highlight: where the crosshair points plus how far the
+/// current dig has gone (0 = just selected). One mechanism for both jobs.
+#[derive(Clone, Copy, Debug)]
+pub struct SelectionDraw {
+    pub pos: BlockPos,
+    pub progress: f32,
+}
+
 #[derive(Clone, Debug)]
 pub struct FrameSubmit {
     pub camera: Option<Camera>,
@@ -113,6 +131,8 @@ pub struct FrameSubmit {
     pub player: Option<PlayerDraw>,
     /// Body-cast streaks drawn with the world, in the one existing pass.
     pub ground_shadows: Vec<GroundShadow>,
+    /// Crosshair target + dig progress. None when aiming at air.
+    pub selection: Option<SelectionDraw>,
     pub ui: Vec<UiQuad>,
     pub size: (u32, u32),
     pub clear: [f32; 4],
@@ -120,6 +140,11 @@ pub struct FrameSubmit {
     pub sun_dir: Vec3,
     /// Whole-world day brightness. Night goes dark here, never per-mesh.
     pub brightness: f32,
+    pub fog_color: [f32; 3],
+    pub fog_density: f32,
+    pub sway: f32,
+    pub tint: [f32; 3],
+    pub mobs: Vec<MobDraw>,
 }
 
 impl Default for FrameSubmit {
@@ -134,11 +159,17 @@ impl Default for FrameSubmit {
             items: Vec::new(),
             player: None,
             ground_shadows: Vec::new(),
+            selection: None,
             ui: Vec::new(),
             size: (0, 0),
             clear: [0.45, 0.70, 0.95, 1.0],
             sun_dir: Vec3::new(0.3, 1.0, 0.2).normalize_or_zero(),
             brightness: 1.0,
+            fog_color: [0.45, 0.70, 0.95],
+            fog_density: 0.012,
+            sway: 0.0,
+            tint: [1.0, 1.0, 1.0],
+            mobs: Vec::new(),
         }
     }
 }
